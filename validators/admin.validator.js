@@ -2,12 +2,21 @@
 
 const Joi = require('joi');
 const { id } = require('./common');
+const { email, password } = require('./common');
 const {
   ORDER_STATUS_VALUES,
   REVIEW_STATUS_VALUES,
   TICKET_STATUS_VALUES,
   TICKET_PRIORITY_VALUES
 } = require('../config/constants');
+
+const adminRegister = Joi.object({
+  fullName: Joi.string().trim().min(2).max(120).required(),
+  email: email(),
+  phone: Joi.string().trim().min(7).max(30).required(),
+  password: password(),
+  signupKey: Joi.string().trim().min(1).required()
+});
 
 const adminOrderStatusUpdate = Joi.object({
   status: Joi.string().valid(...ORDER_STATUS_VALUES).required(),
@@ -83,6 +92,7 @@ const adminOrderStatusQuery = Joi.object({
 });
 
 module.exports = {
+  adminRegister,
   adminOrderStatusUpdate,
   adminUserQuery,
   adminOrderQuery,

@@ -70,6 +70,9 @@ const config = {
     passwordResetMaxAttempts: toInt(process.env.PASSWORD_RESET_MAX_ATTEMPTS, 5),
     emailVerificationTtlHours: toInt(process.env.EMAIL_VERIFICATION_TTL_HOURS, 24),
     maxSessionsPerUser: toInt(process.env.MAX_SESSIONS_PER_USER, 10),
+    // Secret key required to register an admin account via POST /admin/register.
+    // Empty (default) = admin self-registration disabled.
+    adminSignupKey: process.env.ADMIN_SIGNUP_KEY || '',
     // Require a verified email address before checkout is allowed
     requireVerifiedEmailForCheckout: toBool(process.env.REQUIRE_VERIFIED_EMAIL_FOR_CHECKOUT, false)
   },
@@ -105,8 +108,10 @@ const config = {
     secretKey: process.env.PAYSTACK_SECRET_KEY,
     publicKey: process.env.PAYSTACK_PUBLIC_KEY,
     baseUrl: process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co',
-    // Where Paystack redirects the customer after payment
-    callbackUrl: process.env.PAYSTACK_CALLBACK_URL || `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/callback`,
+    // Where Paystack redirects the customer after payment. For the mobile app
+    // this lands on the backend's own /payments/callback page (served by the
+    // API), so control returns to the in-app browser which then closes.
+    callbackUrl: process.env.PAYSTACK_CALLBACK_URL || `${process.env.APP_URL || `http://localhost:${toInt(process.env.PORT, 9200)}`}/payments/callback`,
     timeoutMs: toInt(process.env.PAYSTACK_TIMEOUT_MS, 20000)
   },
 

@@ -2,14 +2,27 @@
 
 /** Admin dashboard & management controllers. */
 const adminService = require('../services/admin.service');
+const authService = require('../services/auth.service');
 const orderService = require('../services/order.service');
 const paymentService = require('../services/payment.service');
 const productService = require('../services/product.service');
 const reviewService = require('../services/review.service');
 const supportService = require('../services/support.service');
-const { ok } = require('../utils/apiResponse');
+const { ok, created } = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
 const pagination = require('../utils/pagination');
+
+// --- Accounts ------------------------------------------------------------
+
+/** Key-gated admin self-registration (public on purpose, protected by ADMIN_SIGNUP_KEY). */
+const registerAdmin = asyncHandler(async (req, res) => {
+  const user = await authService.registerAdmin({
+    ...req.body,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent')
+  });
+  return created(res, 'Admin account registered successfully.', { user });
+});
 
 // --- Users ---------------------------------------------------------------
 
@@ -176,6 +189,7 @@ const getSalesTrend = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  registerAdmin,
   listUsers,
   getUser,
   updateUser,

@@ -7,9 +7,12 @@ const productController = require('../controllers/product.controller');
 const { protect, requireAdmin } = require('../middleware/auth.middleware');
 const { validate } = require('../middleware/validation.middleware');
 const { uploadSingleImage, uploadProductImages } = require('../middleware/upload.middleware');
-const { writeLimiter } = require('../middleware/rateLimiters');
+const { writeLimiter, authLimiter } = require('../middleware/rateLimiters');
 const productValidators = require('../validators/product.validator');
 const adminValidators = require('../validators/admin.validator');
+
+// Key-gated admin registration. Public on purpose — ADMIN_SIGNUP_KEY is the gate.
+router.post('/register', authLimiter(), validate(adminValidators.adminRegister), adminController.registerAdmin);
 
 // Every admin route requires authentication + admin role.
 router.use(protect, requireAdmin);

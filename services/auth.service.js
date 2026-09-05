@@ -74,17 +74,17 @@ const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
 
 /**
  * Registers a new account.
- *  - First account ever bootstraps as ADMIN (convenience for deployments).
+ *  - Role defaults to USER; only the key-gated admin route may request ADMIN.
  *  - Sends welcome + email-verification emails and notifies all admins.
  */
-const register = async ({ fullName, email, phone, password, ipAddress, userAgent }) => {
+const register = async ({ fullName, email, phone, password, ipAddress, userAgent, role } = {}) => {
   const existing = await User.findOne({ where: { email } });
   if (existing) throw AppError.conflict('An account with this email already exists.');
 
-  const isFirstUser = (await User.count()) === 0;
-  const role = isFirstUser ? ROLES.ADMIN : ROLES.USER;
+  const finalRole = role && ROLES[role] === role ? role : ROLES.USER;
+  const hadAdmins = (await User.count({ where: { role: ROLES.ADMIN } })) > 0;
 
-  const user = User.build({ fullName, email, phone, role });
+  const user = User.build({ fullName, email, phone, role: finalRole });
   await user.setPassword(password);
 
   try {
@@ -127,8 +127,8 @@ const register = async ({ fullName, email, phone, password, ipAddress, userAgent
     data: { code: verifyCode }
   });
 
-  // Notify all existing admins (first user has no peers yet).
-  if (!isFirstUser) {
+  // Notify all existing admins (the very first admin has no peers yet).
+  if (hadAdmins) {
     await fanOutToAdmins({
       type: NOTIFICATION_TYPE.NEW_USER_REGISTERED,
       title: 'New user registered',
@@ -140,6 +140,20 @@ const register = async ({ fullName, email, phone, password, ipAddress, userAgent
   }
 
   return publicUser;
+};
+
+/**
+ * Registers an ADMIN account. Gated by a signup key set in the environment;
+ * the admin role can never be requested through the public /auth/register route.
+ */
+const registerAdmin = async ({ fullName, email, phone, password, signupKey, ipAddress, userAgent }) => {
+  if (!config.security.adminSignupKey) {
+    throw AppError.forbidden('Admin registration is not enabled on this deployment.');
+  }
+  if (!signupKey || signupKey !== config.security.adminSignupKey) {
+    throw AppError.forbidden('Invalid admin registration key.');
+  }
+  return register({ fullName, email, phone, password, ipAddress, userAgent, role: ROLES.ADMIN });
 };
 
 /** Authenticates credentials and issues access + refresh tokens. */
@@ -370,6 +384,7 @@ const changePassword = async ({ userId, currentPassword, newPassword }) => {
 
 module.exports = {
   register,
+  registerAdmin,
   login,
   logout,
   logoutAllSessions,
