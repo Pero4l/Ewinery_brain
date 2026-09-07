@@ -85,6 +85,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     indexes: [
       { unique: true, fields: ['email'] },
+      { fields: ['phone'] },
       { fields: ['role'] },
       { fields: ['isActive'] },
       { fields: ['createdAt'] }

@@ -50,6 +50,47 @@ const IN_APP_ONLY = new Set([
   NOTIFICATION_TYPE.SUPPORT_TICKET_STATUS_CHANGED
 ]);
 
+/** Maps an internal notification type to the client-facing category. */
+const CLIENT_TYPE_BY_INTERNAL = {
+  [NOTIFICATION_TYPE.WELCOME]: 'system',
+  [NOTIFICATION_TYPE.EMAIL_VERIFICATION]: 'system',
+  [NOTIFICATION_TYPE.EMAIL_VERIFIED]: 'system',
+  [NOTIFICATION_TYPE.PASSWORD_RESET_REQUESTED]: 'system',
+  [NOTIFICATION_TYPE.PASSWORD_CHANGED]: 'system',
+  [NOTIFICATION_TYPE.NEW_USER_REGISTERED]: 'system',
+  [NOTIFICATION_TYPE.ORDER_CREATED]: 'order',
+  [NOTIFICATION_TYPE.ORDER_STATUS_CHANGED]: 'order',
+  [NOTIFICATION_TYPE.ORDER_OUT_FOR_DELIVERY]: 'order',
+  [NOTIFICATION_TYPE.ORDER_DELIVERED]: 'order',
+  [NOTIFICATION_TYPE.ORDER_COMPLETED]: 'order',
+  [NOTIFICATION_TYPE.ORDER_CANCELLED]: 'order',
+  [NOTIFICATION_TYPE.NEW_ORDER]: 'order',
+  [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: 'order',
+  [NOTIFICATION_TYPE.PAYMENT_FAILED]: 'order',
+  [NOTIFICATION_TYPE.PRODUCT_CREATED]: 'promo',
+  [NOTIFICATION_TYPE.PRODUCT_LOW_STOCK]: 'system',
+  [NOTIFICATION_TYPE.PRODUCT_OUT_OF_STOCK]: 'system',
+  [NOTIFICATION_TYPE.NEW_REVIEW]: 'system',
+  [NOTIFICATION_TYPE.NEW_SUPPORT_TICKET]: 'system',
+  [NOTIFICATION_TYPE.NEW_SUPPORT_MESSAGE]: 'system',
+  [NOTIFICATION_TYPE.SUPPORT_REPLY]: 'system',
+  [NOTIFICATION_TYPE.SUPPORT_TICKET_STATUS_CHANGED]: 'system'
+};
+
+/**
+ * Shapes a Notification row into the API contract consumed by the client:
+ * `{ id, title, body, type, isRead, createdAt }`. `body` maps to the stored
+ * `message` and `isRead` derives from `readAt`.
+ */
+const toAPIShape = n => ({
+  id: n.id,
+  title: n.title,
+  body: n.message || null,
+  type: CLIENT_TYPE_BY_INTERNAL[n.type] || 'system',
+  isRead: Boolean(n.readAt),
+  createdAt: n.createdAt
+});
+
 const activeAdmins = async () => User.scope('admins').findAll({
   attributes: ['id', 'email', 'fullName']
 });
@@ -169,7 +210,7 @@ const listForUser = async ({ userId, page = 1, limit = 20, unreadOnly = false })
     offset: (page - 1) * limit,
     limit
   });
-  return { rows: result.rows, count: result.count };
+  return { rows: result.rows.map(toAPIShape), count: result.count };
 };
 
 const AppError = require('../utils/AppError');
@@ -177,12 +218,12 @@ const AppError = require('../utils/AppError');
 /** Marks a single notification read; throws if it belongs to another user. */
 const markRead = async ({ notificationId, userId }) => {
   const notification = await Notification.findOne({ where: { id: notificationId, userId } });
-  if (!notification) throw AppError.notFound('Notification not found');
+  if (!notification) throw AppError.notFound('Notification not found.');
   if (!notification.readAt) {
     notification.readAt = new Date();
     await notification.save({ fields: ['readAt'] });
   }
-  return notification;
+  return toAPIShape(notification);
 };
 
 /** Marks every notification for the user as read. */

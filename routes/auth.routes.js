@@ -13,6 +13,7 @@ router.post('/login', authLimiter(), validate(validators.login), authController.
 router.post('/refresh', authLimiter(), validate(validators.refreshToken), authController.refreshToken);
 router.post('/logout', protect, validate(validators.refreshToken), authController.logout);
 router.post('/logout-all', protect, authController.logoutAll);
+router.post('/change-password', protect, validate(validators.changePassword), authController.changePassword);
 router.post('/verify-email', authLimiter(), validate(validators.verifyEmail), authController.verifyEmail);
 router.post('/resend-verification', authLimiter(), validate(validators.resendVerification), authController.resendVerification);
 router.post('/forgot-password', passwordResetLimiter(), validate(validators.forgotPassword), authController.forgotPassword);

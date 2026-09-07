@@ -459,17 +459,17 @@ const dispatchStatusNotifications = async (orderId, status) => {
   await Promise.all([
     notify(order.userId, {
       type: typeMap[status] || NOTIFICATION_TYPE.ORDER_STATUS_CHANGED,
-      title: `Order ${status.replace(/_/g, ' ').toLowerCase()}`,
-      message: `Your order ${order.orderNumber} is now ${status.replace(/_/g, ' ').toLowerCase()}.`,
+      title: `Order ${order.orderNumber} is now ${status}`,
+      message: `Your order ${order.orderNumber} status changed to ${status}.`,
       channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
       resourceType: RESOURCE_TYPE.ORDER,
       resourceId: order.id,
-      data: { orderNumber: order.orderNumber, status: status.replace(/_/g, ' ').toLowerCase() }
+      data: { orderNumber: order.orderNumber, status }
     }),
     fanOutToAdmins({
       type: NOTIFICATION_TYPE.ORDER_STATUS_CHANGED,
       title: 'Order status changed',
-      message: `Order ${order.orderNumber} is now ${status.replace(/_/g, ' ').toLowerCase()}.`,
+      message: `Order ${order.orderNumber} is now ${status}.`,
       resourceType: RESOURCE_TYPE.ORDER,
       resourceId: order.id,
       data: { orderNumber: order.orderNumber, status }

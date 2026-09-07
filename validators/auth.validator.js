@@ -11,8 +11,17 @@ const register = Joi.object({
 });
 
 const login = Joi.object({
-  email: email(),
+  email: Joi.string().trim().lowercase().max(160),
+  phone: Joi.string().trim().min(7).max(30),
   password: Joi.string().required()
+}).xor('email', 'phone').messages({
+  'object.missing': 'Email or phone number is required.',
+  'object.xor': 'Provide either an email or a phone number, not both.'
+});
+
+const changePassword = Joi.object({
+  currentPassword: Joi.string().required(),
+  newPassword: Joi.string().required()
 });
 
 const refreshToken = Joi.object({
@@ -45,6 +54,7 @@ const resetPassword = Joi.object({
 module.exports = {
   register,
   login,
+  changePassword,
   refreshToken,
   resendVerification,
   verifyEmail,

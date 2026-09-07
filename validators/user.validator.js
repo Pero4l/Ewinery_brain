@@ -1,7 +1,6 @@
 'use strict';
 
 const Joi = require('joi');
-const { password } = require('./common');
 
 const updateProfile = Joi.object({
   fullName: Joi.string().trim().min(2).max(120).optional(),
@@ -10,10 +9,7 @@ const updateProfile = Joi.object({
 
 const changePassword = Joi.object({
   currentPassword: Joi.string().required(),
-  newPassword: password(),
-  confirmPassword: Joi.string().valid(Joi.ref('newPassword')).required().messages({
-    'any.only': 'Passwords do not match'
-  })
+  newPassword: Joi.string().required()
 });
 
 const addressIdParams = Joi.object({

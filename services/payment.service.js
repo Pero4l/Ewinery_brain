@@ -242,9 +242,9 @@ const dispatchPaymentNotifications = async (orderId, paymentResult) => {
   await Promise.all([
     notify(order.userId, {
       type: success ? NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL : NOTIFICATION_TYPE.PAYMENT_FAILED,
-      title: success ? 'Payment successful' : 'Payment failed',
+      title: success ? 'Payment received' : 'Payment failed',
       message: success
-        ? `Payment of ${order.totalAmount} for order ${order.orderNumber} was received.`
+        ? `Your payment of ${order.totalAmount} for order ${order.orderNumber} was successful.`
         : `We could not process payment for order ${order.orderNumber}. Please try again.`,
       channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
       resourceType: RESOURCE_TYPE.ORDER,

@@ -10,6 +10,6 @@ const validators = require('../validators/notification.validator');
 router.get('/', protect, validate(validators.notificationQuery, 'query'), notificationController.listNotifications);
 router.get('/counts', protect, notificationController.getCounts);
 router.patch('/:id/read', protect, validate(validators.notificationIdParams, 'params'), notificationController.markRead);
-router.patch('/read-all', protect, notificationController.markAllRead);
+router.post('/read-all', protect, notificationController.markAllRead);
 
 module.exports = router;

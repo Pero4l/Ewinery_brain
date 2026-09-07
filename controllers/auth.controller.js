@@ -39,6 +39,15 @@ const logout = asyncHandler(async (req, res) => {
   return ok(res, 'Logged out successfully.');
 });
 
+const changePassword = asyncHandler(async (req, res) => {
+  const result = await authService.changePassword({
+    userId: req.user.id,
+    currentPassword: req.body.currentPassword,
+    newPassword: req.body.newPassword
+  });
+  return ok(res, result.message);
+});
+
 const logoutAll = asyncHandler(async (req, res) => {
   await authService.logoutAllSessions(req.user.id);
   return ok(res, 'All sessions logged out.');
@@ -74,6 +83,7 @@ const resetPassword = asyncHandler(async (req, res) => {
 module.exports = {
   register,
   login,
+  changePassword,
   refreshToken,
   logout,
   logoutAll,

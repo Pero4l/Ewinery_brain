@@ -26,8 +26,8 @@ const markRead = asyncHandler(async (req, res) => {
 });
 
 const markAllRead = asyncHandler(async (req, res) => {
-  const count = await notificationService.markAllRead(req.user.id);
-  return ok(res, `${count} notification(s) marked as read.`);
+  await notificationService.markAllRead(req.user.id);
+  return ok(res, 'All notifications marked as read.');
 });
 
 const getCounts = asyncHandler(async (req, res) => {

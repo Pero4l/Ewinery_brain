@@ -111,7 +111,7 @@ const register = async ({ fullName, email, phone, password, ipAddress, userAgent
   await notify(user.id, {
     type: NOTIFICATION_TYPE.WELCOME,
     title: 'Welcome to eWinery',
-    message: `Welcome ${user.fullName}, your account has been created successfully.`,
+    message: 'Explore our collection of fine wines.',
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
     resourceType: RESOURCE_TYPE.USER,
     resourceId: user.id
@@ -157,11 +157,12 @@ const registerAdmin = async ({ fullName, email, phone, password, signupKey, ipAd
 };
 
 /** Authenticates credentials and issues access + refresh tokens. */
-const login = async ({ email, password, ipAddress, userAgent }) => {
-  const user = await User.scope('withPassword').findOne({ where: { email } });
+const login = async ({ email, phone, password, ipAddress, userAgent }) => {
+  const identifier = email ? { email } : { phone };
+  const user = await User.scope('withPassword').findOne({ where: identifier });
   const passwordOk = user && (await user.verifyPassword(password));
   if (!user || !passwordOk) {
-    throw AppError.unauthorized('Invalid email or password.');
+    throw AppError.unauthorized('Invalid email, phone number, or password.');
   }
   if (!user.isActive) {
     throw AppError.unauthorized('This account has been deactivated. Contact support.');
@@ -359,11 +360,21 @@ const resendVerification = async ({ email }) => {
 
 /** Changes the password for an authenticated user. */
 const changePassword = async ({ userId, currentPassword, newPassword }) => {
+  if (!currentPassword || !newPassword) {
+    throw AppError.badRequest('Current and new password are required.');
+  }
+  if (newPassword.length < 6) {
+    throw AppError.unprocessable('New password must be at least 6 characters.');
+  }
+  if (currentPassword === newPassword) {
+    throw AppError.unprocessable('New password must be different from the current one.');
+  }
+
   const user = await User.scope('withPassword').findByPk(userId);
   if (!user) throw AppError.notFound('Account not found.');
 
   const ok = await user.verifyPassword(currentPassword);
-  if (!ok) throw AppError.badRequest('Current password is incorrect.');
+  if (!ok) throw AppError.unauthorized('Current password is incorrect.');
 
   await user.setPassword(newPassword);
   await user.save();
@@ -379,7 +390,7 @@ const changePassword = async ({ userId, currentPassword, newPassword }) => {
     resourceId: user.id
   });
 
-  return user.toPublicJSON();
+  return { success: true, message: 'Password updated.' };
 };
 
 module.exports = {

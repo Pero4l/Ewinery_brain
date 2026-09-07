@@ -17,12 +17,12 @@ const updateProfile = asyncHandler(async (req, res) => {
 });
 
 const changePassword = asyncHandler(async (req, res) => {
-  const user = await authService.changePassword({
+  const result = await authService.changePassword({
     userId: req.user.id,
     currentPassword: req.body.currentPassword,
     newPassword: req.body.newPassword
   });
-  return ok(res, 'Password changed successfully.', { user });
+  return ok(res, result.message);
 });
 
 // --------------------------------------------------------------------------
