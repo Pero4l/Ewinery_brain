@@ -68,7 +68,7 @@ const config = {
     passwordMinLength: toInt(process.env.PASSWORD_MIN_LENGTH, 6),
     passwordResetTtlMinutes: toInt(process.env.PASSWORD_RESET_TTL_MINUTES, 15),
     passwordResetMaxAttempts: toInt(process.env.PASSWORD_RESET_MAX_ATTEMPTS, 5),
-    emailVerificationTtlHours: toInt(process.env.EMAIL_VERIFICATION_TTL_HOURS, 24),
+    emailVerificationTtlMinutes: toInt(process.env.EMAIL_VERIFICATION_TTL_MINUTES, 15),
     maxSessionsPerUser: toInt(process.env.MAX_SESSIONS_PER_USER, 10),
     // Secret key required to register an admin account via POST /admin/register.
     // Empty (default) = admin self-registration disabled.

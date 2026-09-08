@@ -105,7 +105,7 @@ const render = (type, params = {}) => {
         subject: 'Verify your email address',
         html: layout('Verify your email', `
           ${heading('Verify your email address')}
-          ${paragraph(`Hi ${name}, please use the code below to verify your email address. It expires in ${config.security.emailVerificationTtlHours} hours.`)}
+          ${paragraph(`Hi ${name}, please use the code below to verify your email address. It expires in ${config.security.emailVerificationTtlMinutes} minutes.`)}
           ${codeBlock(code)}
         `)
       };
@@ -125,6 +125,18 @@ const render = (type, params = {}) => {
         html: layout('Password changed', `
           ${heading('Security notice')}
           ${paragraph(`Hi ${name}, your password was recently changed. If this was not you, please contact support immediately.`)}
+        `)
+      };
+    case 'login_alert':
+      return {
+        subject: 'New sign-in to your eWinery account',
+        html: layout('New sign-in', `
+          ${heading('New sign-in detected')}
+          ${paragraph(`Hi ${name}, we detected a new sign-in to your eWinery account.`)}
+          ${params.ipAddress ? paragraph(`IP address: ${params.ipAddress}`) : ''}
+          ${params.userAgent ? paragraph(`Device: ${params.userAgent}`) : ''}
+          ${paragraph('If this was you, no further action is needed. If you did not recognise this sign-in, please change your password and contact support immediately.')}
+          ${button(`${config.app.clientUrl}/settings`, 'Review account security')}
         `)
       };
     case 'email_verified':

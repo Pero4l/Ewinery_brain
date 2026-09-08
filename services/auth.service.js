@@ -96,11 +96,11 @@ const register = async ({ fullName, email, phone, password, ipAddress, userAgent
     throw err;
   }
 
-  // Email verification OTP (24h).
+  // Email verification OTP (15 min).
   const { rawToken: verifyCode } = await createAuthToken({
     userId: user.id,
     type: EMAIL_VERIFICATION,
-    ttlMs: config.security.emailVerificationTtlHours * 60 * 60 * 1000,
+    ttlMs: config.security.emailVerificationTtlMinutes * 60 * 1000,
     ipAddress,
     userAgent
   });
@@ -175,6 +175,16 @@ const login = async ({ email, phone, password, ipAddress, userAgent }) => {
   } else {
     await user.update({ lastLoginAt: new Date() });
   }
+
+  await notify(user.id, {
+    type: NOTIFICATION_TYPE.LOGIN_ALERT,
+    title: 'New sign-in to your account',
+    message: 'We noticed a new sign-in to your eWinery account.',
+    channels: [NOTIFICATION_CHANNEL.EMAIL],
+    resourceType: RESOURCE_TYPE.USER,
+    resourceId: user.id,
+    data: { ipAddress: ipAddress || null, userAgent: userAgent || null }
+  });
 
   return { ...tokens, user: user.toPublicJSON() };
 };
@@ -342,7 +352,7 @@ const resendVerification = async ({ email }) => {
   const { rawToken: code } = await createAuthToken({
     userId: user.id,
     type: EMAIL_VERIFICATION,
-    ttlMs: config.security.emailVerificationTtlHours * 60 * 60 * 1000
+    ttlMs: config.security.emailVerificationTtlMinutes * 60 * 1000
   });
 
   await notify(user.id, {
