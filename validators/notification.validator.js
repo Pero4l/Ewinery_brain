@@ -13,4 +13,17 @@ const notificationIdParams = Joi.object({
   id: id()
 });
 
-module.exports = { notificationQuery, notificationIdParams };
+const registerToken = Joi.object({
+  token: Joi.string().trim().min(10).max(400).required(),
+  platform: Joi.string().valid('ios', 'android').default('ios'),
+  preferences: Joi.object({
+    orderUpdates: Joi.boolean().default(true),
+    promotions: Joi.boolean().default(true)
+  }).default({ orderUpdates: true, promotions: true })
+});
+
+const deleteTokenQuery = Joi.object({
+  token: Joi.string().trim().min(10).max(400).required()
+});
+
+module.exports = { notificationQuery, notificationIdParams, registerToken, deleteTokenQuery };

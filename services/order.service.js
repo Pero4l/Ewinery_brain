@@ -182,11 +182,14 @@ const createOrder = async ({ userId, addressId, customerNote }) => {
     }, { transaction });
 
     for (const line of lines) {
+      const galleryUrl = Array.isArray(line.product.gallery) && line.product.gallery.length
+        ? line.product.gallery[0].url
+        : null;
       await OrderItem.create({
         orderId: order.id,
         productId: line.product.id,
         productName: line.product.name,
-        productImageUrl: line.product.imageUrl,
+        productImageUrl: line.product.imageUrl || galleryUrl,
         unitPrice: line.unitPrice,
         quantity: line.qty,
         lineTotal: line.lineTotal

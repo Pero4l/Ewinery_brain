@@ -30,9 +30,27 @@ const markAllRead = asyncHandler(async (req, res) => {
   return ok(res, 'All notifications marked as read.');
 });
 
+const registerToken = asyncHandler(async (req, res) => {
+  await notificationService.upsertDeviceToken({
+    userId: req.user.id,
+    token: req.body.token,
+    platform: req.body.platform,
+    preferences: req.body.preferences
+  });
+  return ok(res, 'Notification token registered.', { success: true });
+});
+
+const removeToken = asyncHandler(async (req, res) => {
+  await notificationService.removeDeviceToken({
+    userId: req.user.id,
+    token: req.query.token
+  });
+  return ok(res, 'Notification token removed.', { success: true });
+});
+
 const getCounts = asyncHandler(async (req, res) => {
   const counts = await notificationService.getCounts(req.user.id);
   return ok(res, 'Notification counts retrieved.', counts);
 });
 
-module.exports = { listNotifications, markRead, markAllRead, getCounts };
+module.exports = { listNotifications, markRead, markAllRead, registerToken, removeToken, getCounts };

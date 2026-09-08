@@ -15,8 +15,16 @@ const { sum } = require('../utils/money');
 const { PRODUCT_STATUS } = require('../config/constants');
 
 const PRODUCT_ATTRS = [
-  'id', 'name', 'slug', 'price', 'imageUrl', 'stockQuantity', 'isAvailable', 'status'
+  'id', 'name', 'slug', 'price', 'imageUrl', 'gallery', 'stockQuantity', 'isAvailable', 'status'
 ];
+
+/** Primary image URL: gallery[0].url falls back to imageUrl, and vice versa. */
+const primaryImage = product => {
+  const galleryUrl = Array.isArray(product?.gallery) && product.gallery.length
+    ? product.gallery[0].url
+    : null;
+  return product?.imageUrl || galleryUrl;
+};
 
 const getOrCreateCart = async (userId, options = {}) => {
   const existing = await Cart.findOne({ where: { userId }, ...options });
@@ -54,11 +62,13 @@ const getCart = async userId => {
   const enrich = items.map(item => {
     const unitPrice = item.product.price;
     const lineTotal = Number((unitPrice * item.quantity).toFixed(2));
+    const product = item.product.toJSON();
+    product.imageUrl = primaryImage(product);
     return {
       id: item.id,
       productId: item.productId,
       quantity: item.quantity,
-      product: item.product,
+      product,
       unitPrice,
       lineTotal
     };
@@ -66,8 +76,20 @@ const getCart = async userId => {
 
   const subtotal = sum(enrich.map(e => e.lineTotal));
   const itemCount = enrich.reduce((acc, e) => acc + e.quantity, 0);
+  const deliveryFee = subtotal >= (config.store.freeDeliveryThreshold || 0)
+    ? 0
+    : (config.store.deliveryFee || 0);
+  const grandTotal = sum(subtotal, deliveryFee);
 
-  return { id: cart.id, items: enrich, subtotal, itemCount, currency: config.store.currency };
+  return {
+    id: cart.id,
+    items: enrich,
+    subtotal,
+    deliveryFee,
+    grandTotal,
+    itemCount,
+    currency: config.store.currency
+  };
 };
 
 const addItem = async ({ userId, productId, quantity = 1 }) => {

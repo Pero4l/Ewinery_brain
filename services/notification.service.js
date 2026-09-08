@@ -13,9 +13,11 @@
  *  - Email dispatch is fire-and-forget and can never break the main request.
  *  - IN_APP failures are logged, never thrown.
  */
-const { sequelize, User, Notification } = require('../models');
+const { Op } = require('sequelize');
+const { sequelize, User, Notification, DeviceToken } = require('../models');
 const config = require('../config');
 const logger = require('../utils/logger');
+const AppError = require('../utils/AppError');
 const { NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE, ROLES } = require('../config/constants');
 const { sendAsync } = require('./email.service');
 
@@ -143,6 +145,8 @@ const notify = async (userId, {
         resourceId: resourceId || null,
         data: data || null
       });
+      // Best-effort Expo push (fire-and-forget, never blocks the request).
+      sendPush({ userId, title, body: message, type, resourceId });
       return row;
     } catch (err) {
       logger.error('Failed to persist notification', { userId, type, message: err.message });
@@ -167,6 +171,114 @@ const notify = async (userId, {
   }
 
   return null;
+};
+
+// --------------------------------------------------------------------------
+// Expo push notifications
+// --------------------------------------------------------------------------
+
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+/**
+ * Maps an internal notification type to the push consent/preference key and
+ * Android channel. Transactional updates honour `orderUpdates`; promotional
+ * campaigns honour `promotions`.
+ */
+const PUSH_POLICY = {
+  [NOTIFICATION_TYPE.WELCOME]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.ORDER_CREATED]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.ORDER_STATUS_CHANGED]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.ORDER_OUT_FOR_DELIVERY]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.ORDER_DELIVERED]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.ORDER_COMPLETED]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.ORDER_CANCELLED]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.PAYMENT_FAILED]: { permission: 'orderUpdates', channelId: 'orders' },
+  [NOTIFICATION_TYPE.PRODUCT_CREATED]: { permission: 'promotions', channelId: 'promos' }
+};
+
+/**
+ * Sends an Expo push to every registered device for a user who consents.
+ * Fire-and-forget: never awaited by callers, failures only logged. On a
+ * DeviceNotRegistered response the stale token is deleted.
+ */
+const sendPush = async ({ userId, title, body, type, resourceId }) => {
+  if (!userId) return;
+  try {
+    const policy = PUSH_POLICY[type];
+    if (!policy) return;
+
+    const tokens = await DeviceToken.findAll({ where: { userId } });
+    if (!tokens.length) return;
+
+    const messages = tokens
+      .filter(t => t.preferences?.[policy.permission])
+      .map(t => ({
+        to: t.token,
+        title: title || 'eWinery',
+        body: body || title || '',
+        data: { type, orderId: resourceId || null },
+        channelId: policy.channelId,
+        sound: 'default'
+      }));
+    if (!messages.length) return;
+
+    const response = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(messages)
+    });
+    if (!response.ok) {
+      logger.warn('Expo push API returned non-OK', { userId, type, status: response.status });
+      return;
+    }
+
+    const payload = await response.json().catch(() => null);
+    const receipts = Array.isArray(payload?.data) ? payload.data : [];
+    const dead = [];
+    receipts.forEach((receipt, index) => {
+      if (receipt?.error === 'DeviceNotRegistered' && messages[index]?.to) {
+        dead.push(messages[index].to);
+      }
+    });
+    if (dead.length) {
+      await DeviceToken.destroy({
+        where: { userId, token: { [Op.in]: dead } }
+      });
+      logger.debug('Removed stale Expo device tokens', { userId, count: dead.length });
+    }
+  } catch (err) {
+    logger.warn('Expo push send failed', { userId, type, message: err.message });
+  }
+};
+
+/**
+ * Registers (upserts) an Expo push token for a user. Preferences update on
+ * re-registration so the latest consent switches win.
+ */
+const upsertDeviceToken = async ({ userId, token, platform, preferences = {} }) => {
+  if (!token) throw AppError.badRequest('Push token is required.');
+
+  const prefs = {
+    orderUpdates: preferences.orderUpdates !== undefined ? Boolean(preferences.orderUpdates) : true,
+    promotions: preferences.promotions !== undefined ? Boolean(preferences.promotions) : true
+  };
+  const platformValue = ['ios', 'android'].includes(platform) ? platform : 'ios';
+
+  const [record, created] = await DeviceToken.findOrCreate({
+    where: { userId, token },
+    defaults: { platform: platformValue, preferences: prefs }
+  });
+  if (!created) {
+    await record.update({ platform: platformValue, preferences: prefs });
+  }
+  return { id: record.id, platform: record.platform, preferences: record.preferences };
+};
+
+/** Removes a device token (called on sign-out). */
+const removeDeviceToken = async ({ userId, token }) => {
+  if (!token) return;
+  await DeviceToken.destroy({ where: { userId, token } });
 };
 
 /**
@@ -215,8 +327,6 @@ const listForUser = async ({ userId, page = 1, limit = 20, unreadOnly = false })
   return { rows: result.rows.map(toAPIShape), count: result.count };
 };
 
-const AppError = require('../utils/AppError');
-
 /** Marks a single notification read; throws if it belongs to another user. */
 const markRead = async ({ notificationId, userId }) => {
   const notification = await Notification.findOne({ where: { id: notificationId, userId } });
@@ -253,6 +363,8 @@ module.exports = {
   markRead,
   markAllRead,
   getCounts,
+  upsertDeviceToken,
+  removeDeviceToken,
   NOTIFICATION_TYPE,
   NOTIFICATION_CHANNEL,
   RESOURCE_TYPE
