@@ -129,6 +129,7 @@ const NOTIFICATION_TYPE = {
   NEW_REVIEW: 'NEW_REVIEW',
 
   // Coupons / promotions
+  COUPON_CREATED: 'COUPON_CREATED',
   COUPON_ASSIGNED: 'COUPON_ASSIGNED',
 
   // Support

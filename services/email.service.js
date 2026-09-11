@@ -226,6 +226,19 @@ const render = (type, params = {}) => {
           ${button(`${config.app.clientUrl}/support`, 'View conversation')}
         `)
       };
+    case 'coupon': {
+      const formatAmount = value => `₦${Number(value || 0).toLocaleString('en-NG')}`;
+      return {
+        subject: params.subject || 'You have a new coupon from eWinery 🎉',
+        html: layout('New coupon', `
+          ${heading('You have a coupon!')}
+          ${paragraph(`Hi ${name}, use the code below to save ${formatAmount(params.amount)} on your next order.`)}
+          ${codeBlock(params.couponCode)}
+          ${params.expiresAt ? paragraph(`This coupon is valid until ${params.expiresAt}.`) : ''}
+          ${button(`${config.app.clientUrl}/checkout`, 'Shop now')}
+        `)
+      };
+    }
     case 'admin_alert':
       return {
         subject: params.subject || 'eWinery admin notification',

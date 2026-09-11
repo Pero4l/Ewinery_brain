@@ -38,7 +38,9 @@ const EMAIL_TEMPLATE_BY_TYPE = {
   [NOTIFICATION_TYPE.ORDER_COMPLETED]: 'order_completed',
   [NOTIFICATION_TYPE.ORDER_CANCELLED]: 'order_status',
   [NOTIFICATION_TYPE.SUPPORT_REPLY]: 'support_reply',
-  [NOTIFICATION_TYPE.NEW_SUPPORT_TICKET]: 'support_ticket'
+  [NOTIFICATION_TYPE.NEW_SUPPORT_TICKET]: 'support_ticket',
+  [NOTIFICATION_TYPE.COUPON_CREATED]: 'coupon',
+  [NOTIFICATION_TYPE.COUPON_ASSIGNED]: 'coupon'
 };
 
 /** Types that only produce in-app rows (no email). */
@@ -50,8 +52,7 @@ const IN_APP_ONLY = new Set([
   NOTIFICATION_TYPE.PRODUCT_OUT_OF_STOCK,
   NOTIFICATION_TYPE.NEW_REVIEW,
   NOTIFICATION_TYPE.NEW_SUPPORT_MESSAGE,
-  NOTIFICATION_TYPE.SUPPORT_TICKET_STATUS_CHANGED,
-  NOTIFICATION_TYPE.COUPON_ASSIGNED
+  NOTIFICATION_TYPE.SUPPORT_TICKET_STATUS_CHANGED
 ]);
 /** Maps an internal notification type to the client-facing category. */
 const CLIENT_TYPE_BY_INTERNAL = {
@@ -72,6 +73,7 @@ const CLIENT_TYPE_BY_INTERNAL = {
   [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: 'order',
   [NOTIFICATION_TYPE.PAYMENT_FAILED]: 'order',
   [NOTIFICATION_TYPE.PRODUCT_CREATED]: 'promo',
+  [NOTIFICATION_TYPE.COUPON_CREATED]: 'promo',
   [NOTIFICATION_TYPE.COUPON_ASSIGNED]: 'promo',
   [NOTIFICATION_TYPE.PRODUCT_LOW_STOCK]: 'system',
   [NOTIFICATION_TYPE.PRODUCT_OUT_OF_STOCK]: 'system',
@@ -196,6 +198,7 @@ const PUSH_POLICY = {
   [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: { permission: 'orderUpdates', channelId: 'orders' },
   [NOTIFICATION_TYPE.PAYMENT_FAILED]: { permission: 'orderUpdates', channelId: 'orders' },
   [NOTIFICATION_TYPE.PRODUCT_CREATED]: { permission: 'promotions', channelId: 'promos' },
+  [NOTIFICATION_TYPE.COUPON_CREATED]: { permission: 'promotions', channelId: 'promos' },
   [NOTIFICATION_TYPE.COUPON_ASSIGNED]: { permission: 'promotions', channelId: 'promos' }
 };
 
@@ -315,6 +318,54 @@ const fanOutToAdmins = async ({ type, title, message, resourceType, resourceId, 
   }
 };
 
+/**
+ * Broadcasts a notification to every active customer. Used for promotional
+ * campaigns (e.g. a newly generated coupon). Each user gets an in-app row, an
+ * email (unless the type is IN_APP_ONLY) and a push if they opted into
+ * promotional pushes. Never throws — failures are logged per user.
+ */
+const fanOutToAllUsers = async ({
+  type,
+  title,
+  message,
+  channels = [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+  resourceType,
+  resourceId,
+  data = {},
+  emailParams = {}
+}) => {
+  try {
+    const users = await User.findAll({
+      attributes: ['id', 'email', 'fullName'],
+      where: { role: ROLES.USER, isActive: true }
+    });
+    // Sequential so a large customer base never spikes DB connections or the
+    // email provider; `notify` itself keeps email dispatch fire-and-forget.
+    let delivered = 0;
+    for (const user of users) {
+      try {
+        const row = await notify(user.id, {
+          type,
+          title,
+          message,
+          channels,
+          resourceType,
+          resourceId,
+          data,
+          emailParams
+        });
+        if (row) delivered += 1;
+      } catch (err) {
+        logger.error('Promotional fan-out failed for user', { userId: user.id, type, message: err.message });
+      }
+    }
+    return { total: users.length, delivered };
+  } catch (err) {
+    logger.error('Promotional fan-out aborted', { type, message: err.message });
+    return { total: 0, delivered: 0 };
+  }
+};
+
 /** Fetches a paginated set of the recipient's notifications. */
 const listForUser = async ({ userId, page = 1, limit = 20, unreadOnly = false }) => {
   const where = { userId };
@@ -361,6 +412,7 @@ const getCounts = async userId => {
 module.exports = {
   notify,
   fanOutToAdmins,
+  fanOutToAllUsers,
   listForUser,
   markRead,
   markAllRead,

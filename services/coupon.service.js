@@ -22,7 +22,7 @@ const {
 const AppError = require('../utils/AppError');
 const { escapeLike } = require('../utils/sanitize');
 const { ROLES } = require('../config/constants');
-const { notify, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
+const { notify, fanOutToAllUsers, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 
 // --------------------------------------------------------------------------
 // Admin CRUD
@@ -46,6 +46,18 @@ const createCoupon = async ({ code, name, description, amount, startsAt, expires
       isActive: true,
       createdBy
     });
+
+    // Broadcast the new coupon to all active customers (in-app + email + push
+    // if they opted into promotional pushes). Never breaks the request.
+    await fanOutToAllUsers({
+      type: NOTIFICATION_TYPE.COUPON_CREATED,
+      title: 'New coupon for you',
+      message: `A new coupon ${coupon.code} is available — save ${coupon.amount} on your next order. Valid until ${end.toISOString()}.`,
+      channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+      resourceType: RESOURCE_TYPE.USER,
+      data: { couponCode: coupon.code, amount: coupon.amount, expiresAt: end.toISOString() }
+    });
+
     return coupon;
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -176,18 +188,18 @@ const assignCouponToUsers = async ({ couponId, userIds, assignedBy }) => {
     }
   });
 
-  // Fire-and-forget promo notifications to the newly assigned users.
+  // Fire-and-forget promo notifications (in-app + email + push) to the assigned users.
   if (assignedCount > 0) {
     const targets = users.filter(u => found.has(u.id));
     for (const user of targets) {
       notifications.push(notify(user.id, {
         type: NOTIFICATION_TYPE.COUPON_ASSIGNED,
-        title: 'You have a new coupon!',
+        title: 'You have been offered a coupon!',
         message: `Use code ${coupon.code} to save ${coupon.amount} on your next order. Valid until ${new Date(coupon.expiresAt).toISOString()}.`,
-        channels: [NOTIFICATION_CHANNEL.IN_APP],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         resourceType: RESOURCE_TYPE.USER,
         resourceId: user.id,
-        data: { couponCode: coupon.code, amount: coupon.amount }
+        data: { couponCode: coupon.code, amount: coupon.amount, expiresAt: new Date(coupon.expiresAt).toISOString() }
       }));
     }
     await Promise.allSettled(notifications);
