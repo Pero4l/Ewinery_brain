@@ -102,6 +102,15 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    /** Coupon snapshot at checkout (set when a coupon discounted the order). */
+    couponId: {
+      type: DataTypes.UUID,
+      allowNull: true
+    },
+    couponCode: {
+      type: DataTypes.STRING(30),
+      allowNull: true
+    },
     cancelReason: {
       type: DataTypes.STRING(255),
       allowNull: true
@@ -130,7 +139,9 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['status'] },
       { fields: ['paymentStatus'] },
       { fields: ['createdAt'] },
-      { fields: ['userId', 'status'] }
+      { fields: ['userId', 'status'] },
+      { fields: ['couponId'] },
+      { fields: ['couponCode'] }
     ]
   });
 
@@ -161,6 +172,7 @@ module.exports = (sequelize, DataTypes) => {
   Order.associate = models => {
     Order.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
     Order.belongsTo(models.Address, { foreignKey: 'addressId', as: 'address' });
+    Order.belongsTo(models.Coupon, { foreignKey: 'couponId', as: 'coupon' });
     Order.hasMany(models.OrderItem, { foreignKey: 'orderId', as: 'items', onDelete: 'CASCADE' });
     Order.hasMany(models.Transaction, { foreignKey: 'orderId', as: 'transactions' });
     Order.hasMany(models.Review, { foreignKey: 'orderId', as: 'reviews' });

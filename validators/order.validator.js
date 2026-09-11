@@ -2,10 +2,12 @@
 
 const Joi = require('joi');
 const { id } = require('./common');
+const { couponCode } = require('./coupon.validator');
 
 const createOrder = Joi.object({
   addressId: id().optional().allow(null, ''),
   customerNote: Joi.string().trim().max(2000).optional().allow(null, ''),
+  couponCode: couponCode().optional().allow(null, ''),
   meta: Joi.object().max(10).optional()
 });
 

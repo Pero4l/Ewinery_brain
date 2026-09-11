@@ -10,7 +10,8 @@ const createOrder = asyncHandler(async (req, res) => {
   const result = await orderService.createOrder({
     userId: req.user.id,
     addressId: req.body.addressId,
-    customerNote: req.body.customerNote
+    customerNote: req.body.customerNote,
+    couponCode: req.body.couponCode
   });
   return created(res, 'Order created successfully.', result);
 });

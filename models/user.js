@@ -139,6 +139,8 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.SupportTicket, { foreignKey: 'userId', as: 'supportTickets' });
     User.hasMany(models.SupportMessage, { foreignKey: 'senderId', as: 'supportMessages' });
     User.hasMany(models.Notification, { foreignKey: 'userId', as: 'notifications', onDelete: 'CASCADE' });
+    User.hasMany(models.Coupon, { foreignKey: 'createdBy', as: 'createdCoupons' });
+    User.hasMany(models.CouponAssignment, { foreignKey: 'userId', as: 'couponAssignments', onDelete: 'CASCADE' });
   };
 
   return User;

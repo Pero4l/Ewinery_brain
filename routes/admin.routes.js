@@ -10,6 +10,8 @@ const { uploadSingleImage, uploadProductImages } = require('../middleware/upload
 const { writeLimiter, authLimiter } = require('../middleware/rateLimiters');
 const productValidators = require('../validators/product.validator');
 const adminValidators = require('../validators/admin.validator');
+const couponValidators = require('../validators/coupon.validator');
+const couponController = require('../controllers/coupon.controller');
 
 // Key-gated admin registration. Public on purpose — ADMIN_SIGNUP_KEY is the gate.
 router.post('/register', authLimiter(), validate(adminValidators.adminRegister), adminController.registerAdmin);
@@ -61,5 +63,15 @@ router.get('/tickets/:id', validate(adminValidators.adminIdParams, 'params'), ad
 router.post('/tickets/:id/replies', writeLimiter(), validate(adminValidators.adminIdParams, 'params'), validate(adminValidators.adminNote), adminController.replyTicket);
 router.patch('/tickets/:id/status', writeLimiter(), validate(adminValidators.adminIdParams, 'params'), validate(adminValidators.adminTicketStatus), adminController.updateTicketStatus);
 router.patch('/tickets/:id/assign', writeLimiter(), validate(adminValidators.adminIdParams, 'params'), validate(adminValidators.adminAssign), adminController.assignTicket);
+
+// Coupons
+router.get('/coupons', validate(couponValidators.couponSearchQuery, 'query'), couponController.adminListCoupons);
+router.post('/coupons', writeLimiter(), validate(couponValidators.createCoupon), couponController.adminCreateCoupon);
+router.get('/coupons/:id', validate(couponValidators.couponIdParams, 'params'), couponController.adminGetCoupon);
+router.patch('/coupons/:id', writeLimiter(), validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.updateCoupon), couponController.adminUpdateCoupon);
+router.delete('/coupons/:id', writeLimiter(), validate(couponValidators.couponIdParams, 'params'), couponController.adminDeleteCoupon);
+router.post('/coupons/:id/assign', writeLimiter(), validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.assignCouponUsers), couponController.adminAssignCoupon);
+router.post('/coupons/:id/revoke', writeLimiter(), validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.revokeCouponUsers), couponController.adminRevokeCoupon);
+router.get('/coupons/:id/assignments', validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.couponAssignmentQuery, 'query'), couponController.adminListAssignments);
 
 module.exports = router;

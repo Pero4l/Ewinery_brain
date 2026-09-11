@@ -15,6 +15,7 @@ const AppError = require('../utils/AppError');
 const { sum: moneySum } = require('../utils/money');
 const { orderNumber, paymentReference } = require('../utils/tokens');
 const { getOrCreateCart } = require('./cart.service');
+const couponService = require('./coupon.service');
 const { notify, fanOutToAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 const {
   ORDER_STATUS,
@@ -108,7 +109,7 @@ const DEFAULT_INCLUDES = [
  * Creates an order from the user's cart within a single transaction.
  * Returns the order together with its pending payment reference.
  */
-const createOrder = async ({ userId, addressId, customerNote }) => {
+const createOrder = async ({ userId, addressId, customerNote, couponCode }) => {
   if (config.security.requireVerifiedEmailForCheckout) {
     const user = await User.findByPk(userId, { attributes: ['id', 'emailVerifiedAt'] });
     if (!user?.emailVerifiedAt) {
@@ -161,7 +162,22 @@ const createOrder = async ({ userId, addressId, customerNote }) => {
     if (!lines.length) throw AppError.badRequest('Your cart is empty.');
 
     const deliveryFee = deliveryFeeFor(subtotal);
-    const discount = 0;
+    let discount = 0;
+    let couponId = null;
+    let couponCodeSnapshot = null;
+
+    if (couponCode) {
+      const applied = await couponService.applyCouponAtCheckout({
+        code: couponCode,
+        userId,
+        subtotal,
+        transaction
+      });
+      discount = applied.discount;
+      couponId = applied.coupon.id;
+      couponCodeSnapshot = applied.coupon.code;
+    }
+
     const totalAmount = moneySum(subtotal, deliveryFee) - discount;
 
     const orderNumberValue = await nextOrderNumber();
@@ -178,7 +194,9 @@ const createOrder = async ({ userId, addressId, customerNote }) => {
       totalAmount,
       currency: 'NGN',
       itemCount,
-      customerNote: customerNote || null
+      customerNote: customerNote || null,
+      couponId,
+      couponCode: couponCodeSnapshot
     }, { transaction });
 
     for (const line of lines) {
@@ -217,6 +235,11 @@ const createOrder = async ({ userId, addressId, customerNote }) => {
       amount: totalAmount,
       currency: 'NGN'
     }, { transaction });
+
+    // Redeem a used coupon (single-use per assignment) within the same txn.
+    if (couponId) {
+      await couponService.redeemCoupon({ couponId, userId, orderId: order.id, transaction });
+    }
 
     // Clear the cart after a successful order creation.
     for (const item of cartItems) {

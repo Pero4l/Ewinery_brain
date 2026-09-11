@@ -50,9 +50,9 @@ const IN_APP_ONLY = new Set([
   NOTIFICATION_TYPE.PRODUCT_OUT_OF_STOCK,
   NOTIFICATION_TYPE.NEW_REVIEW,
   NOTIFICATION_TYPE.NEW_SUPPORT_MESSAGE,
-  NOTIFICATION_TYPE.SUPPORT_TICKET_STATUS_CHANGED
+  NOTIFICATION_TYPE.SUPPORT_TICKET_STATUS_CHANGED,
+  NOTIFICATION_TYPE.COUPON_ASSIGNED
 ]);
-
 /** Maps an internal notification type to the client-facing category. */
 const CLIENT_TYPE_BY_INTERNAL = {
   [NOTIFICATION_TYPE.WELCOME]: 'system',
@@ -72,6 +72,7 @@ const CLIENT_TYPE_BY_INTERNAL = {
   [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: 'order',
   [NOTIFICATION_TYPE.PAYMENT_FAILED]: 'order',
   [NOTIFICATION_TYPE.PRODUCT_CREATED]: 'promo',
+  [NOTIFICATION_TYPE.COUPON_ASSIGNED]: 'promo',
   [NOTIFICATION_TYPE.PRODUCT_LOW_STOCK]: 'system',
   [NOTIFICATION_TYPE.PRODUCT_OUT_OF_STOCK]: 'system',
   [NOTIFICATION_TYPE.NEW_REVIEW]: 'system',
@@ -194,7 +195,8 @@ const PUSH_POLICY = {
   [NOTIFICATION_TYPE.ORDER_CANCELLED]: { permission: 'orderUpdates', channelId: 'orders' },
   [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: { permission: 'orderUpdates', channelId: 'orders' },
   [NOTIFICATION_TYPE.PAYMENT_FAILED]: { permission: 'orderUpdates', channelId: 'orders' },
-  [NOTIFICATION_TYPE.PRODUCT_CREATED]: { permission: 'promotions', channelId: 'promos' }
+  [NOTIFICATION_TYPE.PRODUCT_CREATED]: { permission: 'promotions', channelId: 'promos' },
+  [NOTIFICATION_TYPE.COUPON_ASSIGNED]: { permission: 'promotions', channelId: 'promos' }
 };
 
 /**
