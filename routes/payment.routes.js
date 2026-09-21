@@ -16,6 +16,8 @@ const escapeHtml = value => value
   .replace(/'/g, '&#39;');
 
 router.post('/initialize', protect, writeLimiter(), validate(validators.initializePayment), paymentController.initializePayment);
+router.post('/guest/initialize', writeLimiter(), validate(validators.initializeGuestPayment), paymentController.initializeGuestPayment);
+router.post('/guest/verify', writeLimiter(), validate(validators.verifyGuestPayment), paymentController.verifyGuestPayment);
 router.get('/verify/:reference', protect, validate(validators.verifyPaymentParams, 'params'), paymentController.verifyPayment);
 // Raw body route (mounted with express.raw in app.js before JSON parsing).
 router.post('/webhook', paymentController.handleWebhook);

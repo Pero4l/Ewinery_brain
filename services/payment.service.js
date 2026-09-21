@@ -12,13 +12,14 @@
  *    or a concurrent verify call cannot credit the same order twice.
  */
 const crypto = require('crypto');
-const { sequelize, Transaction, Order, OrderStatusHistory } = require('../models');
+const { sequelize, Transaction, Order, OrderItem, User, OrderStatusHistory } = require('../models');
 const config = require('../config');
 const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
 const { toMinor, toMajor, equals: moneyEquals } = require('../utils/money');
 const { safeEqual } = require('../utils/tokens');
-const { notify, fanOutToAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
+const { sendAsync } = require('./email.service');
+const { notify, fanOutToAdmins, emailActiveAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 const { TRANSACTION_STATUS, PAYMENT_STATUS, ORDER_STATUS } = require('../config/constants');
 
 /** Paystack REST client. */
@@ -64,9 +65,15 @@ const paystackRequest = async (method, path, body) => {
 // --------------------------------------------------------------------------
 
 /** Starts Paystack checkout for an order's pending transaction. */
-const initializePayment = async ({ order, user, callbackUrl }) => {
+const initializePayment = async ({ order, user = null, email = null, callbackUrl }) => {
   if (order.paymentStatus === PAYMENT_STATUS.PAID) {
     throw AppError.conflict('This order has already been paid.');
+  }
+
+  const customerEmail = email || user?.email;
+  const customerId = (user && user.id) || null;
+  if (!customerEmail) {
+    throw AppError.badRequest('A customer email is required to start payment.');
   }
 
   const tx = await Transaction.findOne({
@@ -87,7 +94,7 @@ const initializePayment = async ({ order, user, callbackUrl }) => {
   }
 
   const data = await paystackRequest('POST', '/transaction/initialize', {
-    email: user.email,
+    email: customerEmail,
     amount: toMinor(tx.amount),
     reference: tx.reference,
     currency: tx.currency || 'NGN',
@@ -95,7 +102,7 @@ const initializePayment = async ({ order, user, callbackUrl }) => {
     metadata: {
       orderId: order.id,
       orderNumber: order.orderNumber,
-      userId: user.id,
+      userId: customerId,
       custom_fields: [
         { display_name: 'Ewinery order', variable_name: 'order_number', value: order.orderNumber }
       ]
@@ -115,17 +122,38 @@ const initializePayment = async ({ order, user, callbackUrl }) => {
   };
 };
 
+/** Shadow of initializePayment for guest orders, guarded by the guest email. */
+const initializeGuestPayment = async ({ orderId, email, callbackUrl }) => {
+  const guestEmail = String(email || '').trim().toLowerCase();
+  const order = await Order.findByPk(orderId);
+  if (!order || order.userId || order.guestEmail !== guestEmail) {
+    throw AppError.notFound('Order not found.');
+  }
+  return initializePayment({ order, email: guestEmail, callbackUrl });
+};
+
 // --------------------------------------------------------------------------
 // Verify (client-side call after redirect)
 // --------------------------------------------------------------------------
 
-const verifyPayment = async ({ reference, userId }) => {
+const verifyPayment = async ({ reference, userId, guestEmail }) => {
   const tx = await Transaction.findOne({ where: { reference } });
   if (!tx) throw AppError.notFound('Transaction not found.');
 
   const order = await Order.findByPk(tx.orderId);
-  if (!order || order.userId !== userId) {
-    throw AppError.notFound('Transaction not found.');
+  if (!order) throw AppError.notFound('Transaction not found.');
+
+  // IDOR guard — the caller must prove ownership either via their account
+  // (registered users) or by matching the guest email on the order.
+  if (userId) {
+    if (order.userId !== userId) throw AppError.notFound('Transaction not found.');
+  } else if (guestEmail) {
+    const normalized = String(guestEmail).trim().toLowerCase();
+    if (order.userId || order.guestEmail !== normalized) {
+      throw AppError.notFound('Transaction not found.');
+    }
+  } else {
+    throw AppError.badRequest('Authentication is required to verify a payment.');
   }
 
   // Idempotent: already successful.
@@ -234,11 +262,45 @@ const applySuccessfulPayment = async (transactionId, { event, verifiedVia }) => 
 /** Notifies the customer and all admins about a payment outcome. */
 const dispatchPaymentNotifications = async (orderId, paymentResult) => {
   const order = await Order.findByPk(orderId, {
-    attributes: ['id', 'userId', 'orderNumber', 'totalAmount', 'status']
+    attributes: ['id', 'userId', 'guestEmail', 'orderNumber', 'subtotal', 'deliveryFee', 'discount', 'totalAmount', 'shippingAddress', 'paymentStatus'],
+    include: [
+      { model: OrderItem, as: 'items' },
+      { model: User, as: 'user', attributes: ['id', 'fullName', 'email', 'phone'] }
+    ]
   });
   if (!order) return;
 
   const success = paymentResult === TRANSACTION_STATUS.SUCCESS;
+  const isGuest = !order.userId;
+  const customerName = isGuest
+    ? order.shippingAddress?.recipientName || null
+    : order.user?.fullName || null;
+  const customerEmail = isGuest ? order.guestEmail : order.user?.email;
+  const customerPhone = order.shippingAddress?.phone || order.user?.phone || null;
+  const addressLine = order.shippingAddress
+    ? [order.shippingAddress.street, order.shippingAddress.city, order.shippingAddress.state, order.shippingAddress.postalCode, order.shippingAddress.country]
+      .filter(Boolean)
+      .join(', ')
+    : '';
+  const orderParams = {
+    orderNumber: order.orderNumber,
+    subtotal: order.subtotal,
+    deliveryFee: order.deliveryFee,
+    discount: order.discount,
+    totalAmount: order.totalAmount,
+    status: order.paymentStatus,
+    customerName,
+    customerEmail,
+    customerPhone,
+    addressLine,
+    items: (order.items || []).map(item => ({
+      name: item.productName,
+      quantity: item.quantity,
+      lineTotal: item.lineTotal
+    })),
+    orderId: order.id
+  };
+
   await Promise.all([
     notify(order.userId, {
       type: success ? NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL : NOTIFICATION_TYPE.PAYMENT_FAILED,
@@ -260,6 +322,30 @@ const dispatchPaymentNotifications = async (orderId, paymentResult) => {
       resourceType: RESOURCE_TYPE.ORDER,
       resourceId: order.id,
       data: { orderNumber: order.orderNumber, amount: order.totalAmount }
+    }),
+    // Guests have no account to receive the in-app/email notification above,
+    // so email the receipt / failure directly to the address they provided.
+    isGuest && customerEmail && sendAsync({
+      to: customerEmail,
+      type: success ? 'order_receipt' : 'payment_failed',
+      params: {
+        ...orderParams,
+        name: customerName || 'there',
+        orderNumber: order.orderNumber,
+        amount: order.totalAmount
+      }
+    }),
+    // Send admins the full order + payment receipt so nothing is missed.
+    emailActiveAdmins({
+      type: 'admin_order_alert',
+      params: {
+        ...orderParams,
+        title: success ? `Payment received for order ${order.orderNumber}` : `Payment failed for order ${order.orderNumber}`,
+        message: success
+          ? `Payment for order ${order.orderNumber} was confirmed.`
+          : `The payment attempt for order ${order.orderNumber} failed.`,
+        subject: `${success ? 'Payment received' : 'Payment failed'} — order ${order.orderNumber} — eWinery`
+      }
     })
   ]);
 };
@@ -344,6 +430,7 @@ const listTransactionsForAdmin = async ({ page, limit, status }) => {
 
 module.exports = {
   initializePayment,
+  initializeGuestPayment,
   verifyPayment,
   handleWebhook,
   applySuccessfulPayment,

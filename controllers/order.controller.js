@@ -16,6 +16,17 @@ const createOrder = asyncHandler(async (req, res) => {
   return created(res, 'Order created successfully.', result);
 });
 
+const createGuestOrder = asyncHandler(async (req, res) => {
+  const result = await orderService.createGuestOrder({
+    items: req.body.items,
+    email: req.body.email,
+    phone: req.body.phone,
+    address: req.body.address,
+    customerNote: req.body.customerNote
+  });
+  return created(res, 'Order created successfully. Complete payment to confirm your order.', result);
+});
+
 const listMyOrders = asyncHandler(async (req, res) => {
   const paging = pagination.resolve(req.query);
   const result = await orderService.listOrdersForUser({
@@ -46,4 +57,4 @@ const cancelOrder = asyncHandler(async (req, res) => {
   return ok(res, 'Order cancelled.', result);
 });
 
-module.exports = { createOrder, listMyOrders, getOrder, confirmReceipt, cancelOrder };
+module.exports = { createOrder, createGuestOrder, listMyOrders, getOrder, confirmReceipt, cancelOrder };

@@ -27,6 +27,23 @@ const verifyPayment = asyncHandler(async (req, res) => {
   return ok(res, 'Payment verification completed.', result);
 });
 
+const initializeGuestPayment = asyncHandler(async (req, res) => {
+  const result = await paymentService.initializeGuestPayment({
+    orderId: req.body.orderId,
+    email: req.body.email,
+    callbackUrl: req.body.callbackUrl
+  });
+  return ok(res, 'Payment initialized.', result);
+});
+
+const verifyGuestPayment = asyncHandler(async (req, res) => {
+  const result = await paymentService.verifyPayment({
+    reference: req.body.reference,
+    guestEmail: req.body.email
+  });
+  return ok(res, 'Payment verification completed.', result);
+});
+
 const handleWebhook = asyncHandler(async (req, res) => {
   const signature = req.headers['x-paystack-signature'];
   const rawBody = req.body; // Buffer (express.raw mounted on this route)
@@ -45,4 +62,4 @@ const listMyTransactions = asyncHandler(async (req, res) => {
   return ok(res, 'Transactions retrieved.', pagination.format(result, paging, 'transactions'));
 });
 
-module.exports = { initializePayment, verifyPayment, handleWebhook, listMyTransactions };
+module.exports = { initializePayment, initializeGuestPayment, verifyPayment, verifyGuestPayment, handleWebhook, listMyTransactions };

@@ -16,7 +16,8 @@ const { sum: moneySum } = require('../utils/money');
 const { orderNumber, paymentReference } = require('../utils/tokens');
 const { getOrCreateCart } = require('./cart.service');
 const couponService = require('./coupon.service');
-const { notify, fanOutToAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
+const { sendAsync } = require('./email.service');
+const { notify, fanOutToAdmins, emailActiveAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 const {
   ORDER_STATUS,
   ORDER_USER_CANCELLABLE_STATUSES,
@@ -49,6 +50,52 @@ const nextOrderNumber = async () => {
 
 const deliveryFeeFor = subtotal =>
   subtotal >= (config.store.freeDeliveryThreshold || 0) ? 0 : (config.store.deliveryFee || 0);
+
+/**
+ * Resolves raw product entries into priced order lines, validating stock and
+ * availability. Shared by guest checkout (direct items) so pricing rules stay
+ * identical to the cart-based flow.
+ */
+const resolveOrderLines = async (entries, transaction) => {
+  const lines = [];
+  let subtotal = 0;
+  let itemCount = 0;
+
+  for (const entry of entries) {
+    const product = await Product.findByPk(entry.productId, { transaction });
+    if (!product) {
+      throw AppError.badRequest('One of the selected products is no longer available.');
+    }
+    const qty = Math.min(config.store.maxCartItemQuantity || 50, Math.max(1, Number.parseInt(entry.quantity, 10) || 1));
+    if (!product.isPurchasable(qty)) {
+      throw AppError.badRequest(`Only ${product.stockQuantity} unit(s) of "${product.name}" are in stock.`);
+    }
+
+    const unitPrice = product.price;
+    const lineTotal = Number((unitPrice * qty).toFixed(2));
+    subtotal = moneySum(subtotal, lineTotal);
+    itemCount += qty;
+    lines.push({ product, qty, unitPrice, lineTotal });
+  }
+
+  if (!lines.length) throw AppError.badRequest('Your cart is empty.');
+  return { lines, subtotal, itemCount };
+};
+
+/** One-line address used in admin emails. */
+const addressLineFrom = address => {
+  if (!address) return '';
+  return [address.street, address.city, address.state, address.postalCode, address.country]
+    .filter(Boolean)
+    .join(', ');
+};
+
+/** Shape used by the email receipt/admin-alert templates. */
+const orderItemsForEmail = items => (items || []).map(item => ({
+  name: item.productName,
+  quantity: item.quantity,
+  lineTotal: item.lineTotal
+}));
 
 /** Decrements stock atomically; returns false if insufficient. */
 const reserveStock = async (productId, quantity, transaction) => {
@@ -275,6 +322,146 @@ const createOrder = async ({ userId, addressId, customerNote, couponCode }) => {
   return { order, transactionReference: transactionRow.reference };
 };
 
+/**
+ * Creates an order for a non-registered guest from the items they submitted.
+ * No user or cart is required — contact details are snapshotted onto the order
+ * (guestEmail + shippingAddress) so the full customer information survives.
+ */
+const createGuestOrder = async ({ items = [], email, phone, address = {}, customerNote }) => {
+  const guestEmail = String(email || '').trim().toLowerCase();
+
+  const result = await sequelize.transaction(async transaction => {
+    const { lines, subtotal, itemCount } = await resolveOrderLines(items, transaction);
+    const deliveryFee = deliveryFeeFor(subtotal);
+    const totalAmount = moneySum(subtotal, deliveryFee);
+
+    const shippingAddress = {
+      recipientName: address.recipientName,
+      phone: phone || address.phone || null,
+      email: guestEmail,
+      street: address.street,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode || null,
+      country: address.country || 'Nigeria',
+      deliveryInstructions: address.deliveryInstructions || null
+    };
+
+    const orderNumberValue = await nextOrderNumber();
+    const order = await Order.create({
+      orderNumber: orderNumberValue,
+      userId: null,
+      addressId: null,
+      guestEmail,
+      shippingAddress,
+      status: ORDER_STATUS.PENDING,
+      paymentStatus: PAYMENT_STATUS.PENDING,
+      subtotal,
+      deliveryFee,
+      discount: 0,
+      totalAmount,
+      currency: 'NGN',
+      itemCount,
+      customerNote: customerNote || null,
+      couponId: null,
+      couponCode: null
+    }, { transaction });
+
+    for (const line of lines) {
+      const galleryUrl = Array.isArray(line.product.gallery) && line.product.gallery.length
+        ? line.product.gallery[0].url
+        : null;
+      await OrderItem.create({
+        orderId: order.id,
+        productId: line.product.id,
+        productName: line.product.name,
+        productImageUrl: line.product.imageUrl || galleryUrl,
+        unitPrice: line.unitPrice,
+        quantity: line.qty,
+        lineTotal: line.lineTotal
+      }, { transaction });
+    }
+
+    for (const line of lines) {
+      const reserved = await reserveStock(line.product.id, line.qty, transaction);
+      if (!reserved) {
+        throw AppError.badRequest(`Insufficient stock for "${line.product.name}". Please adjust your order.`);
+      }
+      await incrementSales(line.product.id, line.qty, transaction);
+    }
+    await order.update({ stockCommitted: true }, { transaction });
+
+    await recordStatusHistory({ order, toStatus: ORDER_STATUS.PENDING, transaction });
+
+    const transactionRow = await Transaction.create({
+      reference: paymentReference(),
+      orderId: order.id,
+      userId: null,
+      provider: 'PAYSTACK',
+      status: TRANSACTION_STATUS.PENDING,
+      amount: totalAmount,
+      currency: 'NGN'
+    }, { transaction });
+
+    return { order, transactionRow };
+  });
+
+  const { order, transactionRow } = result;
+  const summary = await Order.findByPk(order.id, {
+    include: [{ model: OrderItem, as: 'items' }]
+  });
+
+  // Post-commit notifications (fire and forget; never part of the txn).
+  await Promise.all([
+    // Confirmation to the guest themselves (no account, so direct email).
+    sendAsync({
+      to: guestEmail,
+      type: 'order_confirmation',
+      params: {
+        name: address.recipientName || 'there',
+        orderNumber: order.orderNumber,
+        amount: order.totalAmount
+      }
+    }),
+    fanOutToAdmins({
+      type: NOTIFICATION_TYPE.NEW_ORDER,
+      title: 'New guest order received',
+      message: `Guest order ${order.orderNumber} for ${order.totalAmount} from ${address.recipientName || guestEmail} was placed.`,
+      resourceType: RESOURCE_TYPE.ORDER,
+      resourceId: order.id,
+      data: {
+        orderNumber: order.orderNumber,
+        amount: order.totalAmount,
+        customerName: address.recipientName || null,
+        customerEmail: guestEmail,
+        customerPhone: phone || null
+      }
+    }),
+    emailActiveAdmins({
+      type: 'admin_order_alert',
+      params: {
+        title: 'New guest order received',
+        message: `A guest placed order ${order.orderNumber} and is awaiting payment.`,
+        subject: `Guest order ${order.orderNumber} received — eWinery`,
+        orderNumber: order.orderNumber,
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        discount: order.discount,
+        totalAmount: order.totalAmount,
+        status: 'Awaiting payment',
+        customerName: address.recipientName || null,
+        customerEmail: guestEmail,
+        customerPhone: phone || null,
+        addressLine: addressLineFrom(order.shippingAddress),
+        items: orderItemsForEmail(summary.items),
+        orderId: order.id
+      }
+    })
+  ]);
+
+  return { order: summary, transactionReference: transactionRow.reference };
+};
+
 // --------------------------------------------------------------------------
 // Reading (IDOR-safe)
 // --------------------------------------------------------------------------
@@ -320,7 +507,8 @@ const listOrdersForAdmin = async ({ page, limit, status, search }) => {
   if (search) {
     where[Op.or] = [
       { orderNumber: { [Op.iLike]: `%${search}%` } },
-      { '$user.email$': { [Op.iLike]: `%${search}%` } }
+      { '$user.email$': { [Op.iLike]: `%${search}%` } },
+      { guestEmail: { [Op.iLike]: `%${search}%` } }
     ];
   }
 
@@ -530,6 +718,7 @@ const dispatchCancellationNotifications = async (orderId, actorId) => {
 
 module.exports = {
   createOrder,
+  createGuestOrder,
   getOrderForUser,
   listOrdersForUser,
   getOrderForAdmin,

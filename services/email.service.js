@@ -84,6 +84,49 @@ const listItem = (label, value) => `
   </tr>
 `;
 
+const formatNaira = value => `₦${Number(value || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
+
+const orderDetails = (params = {}) => {
+  const items = Array.isArray(params.items) ? params.items : [];
+  const itemRows = items.map(item => `
+    <tr>
+      <td style="padding:8px 12px;color:#333;font-size:14px;">${escapeHtml(item.name)}</td>
+      <td style="padding:8px 12px;color:#333;font-size:14px;text-align:center;">${escapeHtml(String(item.quantity))}</td>
+      <td style="padding:8px 12px;color:#333;font-size:14px;text-align:right;">${formatNaira(item.lineTotal)}</td>
+    </tr>
+  `).join('');
+
+  const summaryRows = [
+    ['Subtotal', formatNaira(params.subtotal)],
+    ['Delivery fee', formatNaira(params.deliveryFee)],
+    ...(Number(params.discount || 0) > 0 ? [['Discount', `- ${formatNaira(params.discount)}`]] : []),
+    ['Total', formatNaira(params.totalAmount)]
+  ].map(([label, value]) => listItem(label, value)).join('');
+
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+      ${params.customerName ? listItem('Customer', params.customerName) : ''}
+      ${params.customerEmail ? listItem('Email', params.customerEmail) : ''}
+      ${params.customerPhone ? listItem('Phone', params.customerPhone) : ''}
+      ${listItem('Order number', params.orderNumber)}
+      ${params.addressLine ? listItem('Ship to', params.addressLine) : ''}
+    </table>
+    <h3 style="color:#4a0e0e;font-size:15px;margin:24px 0 8px;">Items</h3>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #eee;">
+      <tr>
+        <th style="padding:8px 12px;background:#f6f5f2;color:#888;font-size:12px;text-align:left;">Item</th>
+        <th style="padding:8px 12px;background:#f6f5f2;color:#888;font-size:12px;text-align:center;">Qty</th>
+        <th style="padding:8px 12px;background:#f6f5f2;color:#888;font-size:12px;text-align:right;">Total</th>
+      </tr>
+      ${itemRows || '<tr><td colspan="3" style="padding:12px;color:#888;font-size:13px;">No items recorded.</td></tr>'}
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:8px;">
+      ${summaryRows}
+      ${params.status ? listItem('Payment', params.status) : ''}
+    </table>
+  `;
+};
+
 /**
  * Renders a typed email message into { subject, html }.
  */
@@ -239,6 +282,25 @@ const render = (type, params = {}) => {
         `)
       };
     }
+    case 'order_receipt':
+      return {
+        subject: `Your eWinery receipt for order ${params.orderNumber || ''}`,
+        html: layout('Order receipt', `
+          ${heading('Thank you for your order')}
+          ${paragraph(`Hi ${params.customerName || 'there'}, here is the receipt for order ${params.orderNumber}.`)}
+          ${orderDetails(params)}
+          ${params.orderId ? button(`${config.app.clientUrl}/orders/${params.orderId}`, 'View your order') : ''}
+        `)
+      };
+    case 'admin_order_alert':
+      return {
+        subject: params.subject || `Order ${params.orderNumber || ''} received — eWinery`,
+        html: layout('Order alert', `
+          ${heading(params.title || 'New order received')}
+          ${paragraph(params.message || 'A new order has been placed. Details below:')}
+          ${orderDetails(params)}
+        `)
+      };
     case 'admin_alert':
       return {
         subject: params.subject || 'eWinery admin notification',

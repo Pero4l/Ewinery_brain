@@ -30,9 +30,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false
     },
+    /** Null for guest (non-registered) checkout orders. */
     userId: {
       type: DataTypes.UUID,
-      allowNull: false
+      allowNull: true
     },
     provider: {
       type: DataTypes.ENUM(...PAYMENT_PROVIDER_VALUES),

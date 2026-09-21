@@ -34,14 +34,27 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       unique: { msg: 'Duplicate order number' }
     },
+    /** Null for guest (non-registered) checkout orders. */
     userId: {
       type: DataTypes.UUID,
-      allowNull: false
+      allowNull: true
     },
     addressId: {
       type: DataTypes.UUID,
       allowNull: true,
       comment: 'Nullable so deleting an address never destroys order history'
+    },
+    /** Contact email for guest orders; null for registered-user orders. */
+    guestEmail: {
+      type: DataTypes.STRING(160),
+      allowNull: true
+    },
+    /** True when the order was placed without a registered account. */
+    isGuest: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.getDataValue('userId') === null || this.getDataValue('userId') === undefined;
+      }
     },
     /** Immutable snapshot of the delivery details at checkout time. */
     shippingAddress: {
@@ -140,6 +153,7 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['paymentStatus'] },
       { fields: ['createdAt'] },
       { fields: ['userId', 'status'] },
+      { fields: ['guestEmail'] },
       { fields: ['couponId'] },
       { fields: ['couponCode'] }
     ]

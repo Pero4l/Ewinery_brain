@@ -103,6 +103,28 @@ const activeAdmins = async () => User.scope('admins').findAll({
 });
 
 /**
+ * Emails every active administrator (fire-and-forget). Used for order and
+ * payment alerts that carry full customer/order details, which the in-app
+ * notification rows deliberately keep short.
+ */
+const emailActiveAdmins = async ({ type, params = {}, subject }) => {
+  try {
+    const admins = await activeAdmins();
+    for (const admin of admins) {
+      if (admin.email) {
+        sendAsync({
+          to: admin.email,
+          type,
+          params: { name: admin.fullName, subject, ...params }
+        });
+      }
+    }
+  } catch (err) {
+    logger.error('Admin email fan-out failed', { type, message: err.message });
+  }
+};
+
+/**
  * Notifies a single recipient across channels.
  *
  * @param {string} userId
@@ -413,6 +435,7 @@ module.exports = {
   notify,
   fanOutToAdmins,
   fanOutToAllUsers,
+  emailActiveAdmins,
   listForUser,
   markRead,
   markAllRead,
