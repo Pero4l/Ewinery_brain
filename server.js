@@ -2,6 +2,7 @@ require('dotenv').config();
 const config = require('./config');
 const app = require('./app');
 const db = require('./models');
+const keepAlive = require('./utils/keepAlive');
 
 const PORT = process.env.PORT || 9200;
 
@@ -10,6 +11,7 @@ config.validate();
 const server = app.listen(PORT, () => {
   console.log(`🚀 eWinery Server listening on port http://localhost:${PORT}`);
   console.log(`🏥 Health check endpoint: http://localhost:${PORT}/health`);
+  keepAlive.start();
 });
 
 // Connect to database AFTER the server is already listening so Render's
@@ -30,6 +32,7 @@ db.testConnection()
 // Graceful Shutdown
 const shutdown = async (signal) => {
   console.log(`\n⚠️ Received ${signal}. Shutting down server gracefully...`);
+  keepAlive.stop();
   server.close(async () => {
     console.log('🔌 HTTP Server closed.');
     try {

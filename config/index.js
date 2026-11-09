@@ -123,6 +123,15 @@ const config = {
     maxCartItemQuantity: toInt(process.env.MAX_CART_ITEM_QUANTITY, 50)
   },
 
+  keepAlive: {
+    // Self-ping so Render's free tier does not spin the service down after
+    // 15 minutes without inbound traffic. Render sets RENDER_EXTERNAL_URL
+    // automatically; KEEP_ALIVE_URL overrides it.
+    enabled: toBool(process.env.KEEP_ALIVE_ENABLED, Boolean(process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL)),
+    url: process.env.KEEP_ALIVE_URL || (process.env.RENDER_EXTERNAL_URL ? `${process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '')}/health` : ''),
+    intervalMinutes: toInt(process.env.KEEP_ALIVE_INTERVAL_MINUTES, 3)
+  },
+
   pagination: {
     defaultLimit: toInt(process.env.PAGINATION_DEFAULT_LIMIT, 20),
     maxLimit: toInt(process.env.PAGINATION_MAX_LIMIT, 100),
