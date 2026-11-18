@@ -72,6 +72,12 @@ module.exports = (sequelize, DataTypes) => {
     ageConfirmedAt: { type: DataTypes.DATE, allowNull: true },
     consentIpAddress: { type: DataTypes.STRING(64), allowNull: true },
     consentUserAgent: { type: DataTypes.STRING(255), allowNull: true },
+    /** Account-level notification switches (follow the user across devices). */
+    notificationPreferences: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: { orderUpdates: true, promotions: false, emailPromotions: false }
+    },
     /** Any access token issued before this moment is rejected (logout-all / password change). */
     tokensValidFrom: {
       type: DataTypes.DATE,
@@ -100,6 +106,20 @@ module.exports = (sequelize, DataTypes) => {
 
   User.prototype.isEmailVerified = function isEmailVerified() {
     return Boolean(this.emailVerifiedAt);
+  };
+
+  User.DEFAULT_NOTIFICATION_PREFERENCES = Object.freeze({ orderUpdates: true, promotions: false, emailPromotions: false });
+
+  /** Stored preferences merged over the defaults (missing keys never read as false-by-accident). */
+  User.prototype.getNotificationPreferences = function getNotificationPreferences() {
+    const stored = this.notificationPreferences && typeof this.notificationPreferences === 'object'
+      ? this.notificationPreferences
+      : {};
+    const out = {};
+    for (const [key, fallback] of Object.entries(User.DEFAULT_NOTIFICATION_PREFERENCES)) {
+      out[key] = typeof stored[key] === 'boolean' ? stored[key] : fallback;
+    }
+    return out;
   };
 
   User.prototype.isAdmin = function isAdmin() {

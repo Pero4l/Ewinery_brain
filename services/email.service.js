@@ -301,6 +301,24 @@ const render = (type, params = {}) => {
           ${orderDetails(params)}
         `)
       };
+    case 'broadcast': {
+      // Admin-written plain text: everything is escaped (no HTML from the admin),
+      // blank lines start a new paragraph, single line breaks become <br>.
+      const blocks = String(params.content || '')
+        .split(/\n{2,}/)
+        .map(block => block.trim())
+        .filter(Boolean)
+        .map(block => `<p style="font-size:15px;line-height:1.6;color:#333;">${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+        .join('');
+      return {
+        subject: params.subject || 'News from eWinery',
+        html: layout(params.subject || 'eWinery', `
+          ${paragraph(`Hi ${name},`)}
+          ${blocks}
+          <p style="font-size:12px;line-height:1.5;color:#999;margin-top:24px;">You are receiving this email because you have an eWinery account.</p>
+        `)
+      };
+    }
     case 'admin_alert':
       return {
         subject: params.subject || 'eWinery admin notification',
@@ -324,12 +342,18 @@ const render = (type, params = {}) => {
  * @param {object} [options.params]  Template variables.
  * @returns {Promise<boolean>} Resolves false when emailing is disabled or failed.
  */
-const send = async ({ to, type, params = {} }) => {
+/**
+ * Sends one email and reports the outcome:
+ *   { ok: true } | { ok: false, retryable: boolean, error: string }
+ * `retryable` is true for network errors, 429 and 5xx (worth trying again),
+ * false for other 4xx (e.g. an invalid address) and when email is disabled.
+ */
+const deliver = async ({ to, type, params = {} }) => {
   if (!isEnabled()) {
     logger.debug('Email skipped (disabled or missing API key)', { to, type });
-    return false;
+    return { ok: false, retryable: false, error: 'Email is disabled on this server' };
   }
-  if (!to) return false;
+  if (!to) return { ok: false, retryable: false, error: 'Missing recipient' };
 
   const { subject, html } = render(type, params);
   const body = {
@@ -356,15 +380,22 @@ const send = async ({ to, type, params = {} }) => {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       logger.error('Brevo send failed', { to, type, status: response.status, detail: detail.slice(0, 500) });
-      return false;
+      return {
+        ok: false,
+        retryable: response.status === 429 || response.status >= 500,
+        error: `HTTP ${response.status}: ${detail.slice(0, 200)}`
+      };
     }
     logger.debug('Email sent', { to, type });
-    return true;
+    return { ok: true };
   } catch (err) {
     logger.warn('Email send error', { to, type, message: err.message });
-    return false;
+    return { ok: false, retryable: true, error: String(err.message || 'Network error').slice(0, 200) };
   }
 };
+
+/** Sends one email; resolves true on success. Never throws. */
+const send = async options => (await deliver(options)).ok;
 
 /** Fire-and-forget wrapper for callers that don't need the result. */
 const sendAsync = (options) => {
@@ -372,4 +403,4 @@ const sendAsync = (options) => {
   Promise.resolve(send(options)).catch(() => {});
 };
 
-module.exports = { send, sendAsync, render };
+module.exports = { send, deliver, sendAsync, render, isEnabled };

@@ -3,6 +3,7 @@
 /** User profile & address controllers. */
 const userService = require('../services/user.service');
 const authService = require('../services/auth.service');
+const notificationService = require('../services/notification.service');
 const { ok, created } = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -33,6 +34,16 @@ const acceptTerms = asyncHandler(async (req, res) => {
     userAgent: req.get('user-agent')
   });
   return ok(res, 'Terms accepted.', { user });
+});
+
+const getNotificationPreferences = asyncHandler(async (req, res) => {
+  const preferences = await notificationService.getPreferences(req.user.id);
+  return ok(res, 'Notification preferences retrieved.', { preferences });
+});
+
+const updateNotificationPreferences = asyncHandler(async (req, res) => {
+  const preferences = await notificationService.updatePreferences(req.user.id, req.body);
+  return ok(res, 'Notification preferences updated.', { preferences });
 });
 
 // --------------------------------------------------------------------------
@@ -72,6 +83,8 @@ module.exports = {
   getProfile,
   updateProfile,
   acceptTerms,
+  getNotificationPreferences,
+  updateNotificationPreferences,
   changePassword,
   listAddresses,
   createAddress,

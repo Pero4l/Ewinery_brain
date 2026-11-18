@@ -17,6 +17,7 @@ const { orderNumber, paymentReference } = require('../utils/tokens');
 const { buildConsentRecord } = require('../utils/consent');
 const { getOrCreateCart } = require('./cart.service');
 const couponService = require('./coupon.service');
+const deliveryService = require('./delivery.service');
 const { sendAsync } = require('./email.service');
 const { notify, fanOutToAdmins, emailActiveAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 const {
@@ -49,8 +50,6 @@ const nextOrderNumber = async () => {
   throw AppError.internal('Could not allocate a unique order number.');
 };
 
-const deliveryFeeFor = subtotal =>
-  subtotal >= (config.store.freeDeliveryThreshold || 0) ? 0 : (config.store.deliveryFee || 0);
 
 /**
  * Resolves raw product entries into priced order lines, validating stock and
@@ -209,7 +208,14 @@ const createOrder = async ({ userId, addressId, customerNote, couponCode }) => {
 
     if (!lines.length) throw AppError.badRequest('Your cart is empty.');
 
-    const deliveryFee = deliveryFeeFor(subtotal);
+    const delivery = await deliveryService.quote({
+      subtotal,
+      state: deliveryAddress.state,
+      city: deliveryAddress.city,
+      transaction
+    });
+    deliveryService.assertDeliveryAvailable(delivery);
+    const deliveryFee = delivery.deliveryFee;
     let discount = 0;
     let couponId = null;
     let couponCodeSnapshot = null;
@@ -238,6 +244,7 @@ const createOrder = async ({ userId, addressId, customerNote, couponCode }) => {
       paymentStatus: PAYMENT_STATUS.PENDING,
       subtotal,
       deliveryFee,
+      deliveryZoneName: delivery.zoneName,
       discount,
       totalAmount,
       currency: 'NGN',
@@ -335,7 +342,14 @@ const createGuestOrder = async ({ items = [], email, phone, address = {}, custom
 
   const result = await sequelize.transaction(async transaction => {
     const { lines, subtotal, itemCount } = await resolveOrderLines(items, transaction);
-    const deliveryFee = deliveryFeeFor(subtotal);
+    const delivery = await deliveryService.quote({
+      subtotal,
+      state: address.state,
+      city: address.city,
+      transaction
+    });
+    deliveryService.assertDeliveryAvailable(delivery);
+    const deliveryFee = delivery.deliveryFee;
     const totalAmount = moneySum(subtotal, deliveryFee);
 
     const shippingAddress = {
@@ -361,6 +375,7 @@ const createGuestOrder = async ({ items = [], email, phone, address = {}, custom
       paymentStatus: PAYMENT_STATUS.PENDING,
       subtotal,
       deliveryFee,
+      deliveryZoneName: delivery.zoneName,
       discount: 0,
       totalAmount,
       currency: 'NGN',

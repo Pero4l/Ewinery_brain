@@ -8,7 +8,8 @@
  * tampered cart can never influence the amount a customer is charged.
  */
 const { Op } = require('sequelize');
-const { sequelize, Cart, CartItem, Product } = require('../models');
+const { sequelize, Cart, CartItem, Product, Address } = require('../models');
+const deliveryService = require('./delivery.service');
 const config = require('../config');
 const AppError = require('../utils/AppError');
 const { sum } = require('../utils/money');
@@ -76,9 +77,11 @@ const getCart = async userId => {
 
   const subtotal = sum(enrich.map(e => e.lineTotal));
   const itemCount = enrich.reduce((acc, e) => acc + e.quantity, 0);
-  const deliveryFee = subtotal >= (config.store.freeDeliveryThreshold || 0)
-    ? 0
-    : (config.store.deliveryFee || 0);
+  // Priced for the address checkout would use by default (same fallback as POST /orders).
+  const address = (await Address.findOne({ where: { userId, isDefault: true }, attributes: ['state', 'city'] }))
+    || (await Address.findOne({ where: { userId }, order: [['createdAt', 'DESC']], attributes: ['state', 'city'] }));
+  const delivery = await deliveryService.quote({ subtotal, state: address?.state, city: address?.city });
+  const deliveryFee = delivery.deliveryFee;
   const grandTotal = sum(subtotal, deliveryFee);
 
   return {
@@ -86,7 +89,16 @@ const getCart = async userId => {
     items: enrich,
     subtotal,
     deliveryFee,
+    deliveryZoneName: delivery.zoneName,
     grandTotal,
+    delivery: {
+      isDeliveryEnabled: delivery.isDeliveryEnabled,
+      isFree: delivery.isFree,
+      freeDeliveryThreshold: delivery.freeDeliveryThreshold,
+      amountToFreeDelivery: delivery.amountToFreeDelivery,
+      estimatedDeliveryText: delivery.estimatedDeliveryText,
+      pricedFor: address ? { state: address.state, city: address.city } : null
+    },
     itemCount,
     currency: config.store.currency
   };

@@ -3,6 +3,7 @@ const config = require('./config');
 const app = require('./app');
 const db = require('./models');
 const keepAlive = require('./utils/keepAlive');
+const broadcastService = require('./services/broadcast.service');
 
 const PORT = process.env.PORT || 9200;
 
@@ -21,6 +22,8 @@ db.testConnection()
   .then((dbStatus) => {
     if (dbStatus.success) {
       console.log('✅ Database connected successfully to PostgreSQL (Aiven Cloud).');
+      // Resume any email broadcast that was interrupted by a restart.
+      broadcastService.startWorker();
     } else {
       console.error('❌ Database connection failed:', dbStatus.error);
     }
@@ -33,6 +36,7 @@ db.testConnection()
 const shutdown = async (signal) => {
   console.log(`\n⚠️ Received ${signal}. Shutting down server gracefully...`);
   keepAlive.stop();
+  broadcastService.stopWorker();
   server.close(async () => {
     console.log('🔌 HTTP Server closed.');
     try {

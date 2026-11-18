@@ -49,6 +49,9 @@ const writeLimiter = () => {
   return createLimiter({ windowMs, limit: config.rateLimit.writeMax });
 };
 
+/** Admin email broadcasts: at most 5 per hour (guards against double sends). */
+const broadcastLimiter = () => createLimiter({ windowMs: 60 * 60 * 1000, limit: 5 });
+
 /** Plain-NON-API limiter so controllers/services can opt out when disabled. */
 const isRateLimitEnabled = () => config.rateLimit.enabled;
 
@@ -57,5 +60,6 @@ module.exports = {
   authLimiter,
   passwordResetLimiter,
   writeLimiter,
+  broadcastLimiter,
   isRateLimitEnabled
 };

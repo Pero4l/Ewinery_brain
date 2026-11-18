@@ -11,6 +11,8 @@ const validators = require('../validators/user.validator');
 router.get('/me', protect, userController.getProfile);
 router.patch('/me', protect, validate(validators.updateProfile), userController.updateProfile);
 router.post('/me/terms', protect, requireLegalConsent, validate(validators.acceptTerms), userController.acceptTerms);
+router.get('/me/notification-preferences', protect, userController.getNotificationPreferences);
+router.patch('/me/notification-preferences', protect, validate(validators.notificationPreferences), userController.updateNotificationPreferences);
 router.post('/change-password', protect, validate(validators.changePassword), userController.changePassword);
 
 router.get('/addresses', protect, userController.listAddresses);

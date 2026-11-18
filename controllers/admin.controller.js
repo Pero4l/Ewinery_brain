@@ -8,7 +8,8 @@ const paymentService = require('../services/payment.service');
 const productService = require('../services/product.service');
 const reviewService = require('../services/review.service');
 const supportService = require('../services/support.service');
-const { ok, created } = require('../utils/apiResponse');
+const broadcastService = require('../services/broadcast.service');
+const { ok, created, accepted } = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
 const pagination = require('../utils/pagination');
 
@@ -188,8 +189,44 @@ const getSalesTrend = asyncHandler(async (req, res) => {
   return ok(res, 'Sales trend retrieved.', { days, trend });
 });
 
+const sendEmailBroadcast = asyncHandler(async (req, res) => {
+  const broadcast = await broadcastService.startBroadcast({
+    subject: req.body.subject,
+    content: req.body.content,
+    adminId: req.user.id
+  });
+  return accepted(res, `Sending to ${broadcast.total} customer(s).`, { broadcast });
+});
+
+const listEmailBroadcasts = asyncHandler(async (req, res) => {
+  const paging = pagination.resolve(req.query);
+  const result = await broadcastService.listBroadcasts({ page: paging.page, limit: paging.limit });
+  return ok(res, 'Broadcasts retrieved.', {
+    broadcasts: result.rows,
+    pagination: pagination.meta({ page: paging.page, limit: paging.limit, total: result.count })
+  });
+});
+
+const getEmailBroadcast = asyncHandler(async (req, res) => {
+  const paging = pagination.resolve(req.query);
+  const result = await broadcastService.getBroadcast({
+    broadcastId: req.params.id,
+    status: req.query.status,
+    page: paging.page,
+    limit: paging.limit
+  });
+  return ok(res, 'Broadcast retrieved.', {
+    broadcast: result.broadcast,
+    recipients: result.recipients,
+    pagination: pagination.meta({ page: paging.page, limit: paging.limit, total: result.recipientCount })
+  });
+});
+
 module.exports = {
   registerAdmin,
+  sendEmailBroadcast,
+  listEmailBroadcasts,
+  getEmailBroadcast,
   listUsers,
   getUser,
   updateUser,

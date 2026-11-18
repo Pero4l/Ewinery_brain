@@ -136,6 +136,14 @@ const config = {
     intervalMinutes: toInt(process.env.KEEP_ALIVE_INTERVAL_MINUTES, 3)
   },
 
+  broadcast: {
+    // Admin email broadcasts: emails per batch, pause between batches, and how
+    // many times one recipient is tried before giving up.
+    batchSize: Math.max(1, toInt(process.env.BROADCAST_BATCH_SIZE, 10)),
+    batchPauseMs: Math.max(0, toInt(process.env.BROADCAST_BATCH_PAUSE_MS, 1000)),
+    maxAttempts: Math.max(1, toInt(process.env.BROADCAST_MAX_ATTEMPTS, 4))
+  },
+
   pagination: {
     defaultLimit: toInt(process.env.PAGINATION_DEFAULT_LIMIT, 20),
     maxLimit: toInt(process.env.PAGINATION_MAX_LIMIT, 100),

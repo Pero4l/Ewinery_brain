@@ -14,6 +14,7 @@ const paymentRoutes = require('./payment.routes');
 const supportRoutes = require('./support.routes');
 const notificationRoutes = require('./notification.routes');
 const adminRoutes = require('./admin.routes');
+const deliveryRoutes = require('./delivery.routes');
 
 const router = express.Router();
 
@@ -27,6 +28,7 @@ router.use('/coupons', couponRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/support', supportRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/delivery', deliveryRoutes);
 router.use('/admin', adminRoutes);
 
 module.exports = router;

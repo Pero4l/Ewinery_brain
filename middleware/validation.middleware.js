@@ -34,13 +34,15 @@ const setRequestSource = (req, source, value) => {
 /**
  * @param {Joi.Schema} schema
  * @param {'body'|'query'|'params'} [source='body']
+ * @param {object} [options]
+ * @param {string[]} [options.multilineFields]  Top-level fields whose line breaks are kept.
  */
-const validate = (schema, source = 'body') => {
+const validate = (schema, source = 'body', options = {}) => {
   const cleanSource = ['body', 'query', 'params'].includes(source) ? source : 'body';
 
   return (req, res, next) => {
     const raw = req[cleanSource];
-    const sanitized = deepClean(raw);
+    const sanitized = deepClean(raw, 0, options);
 
     const { error, value } = schema.validate(sanitized === undefined ? {} : sanitized, {
       abortEarly: false,

@@ -85,6 +85,13 @@ const CLIENT_TYPE_BY_INTERNAL = {
 };
 
 /**
+ * Marketing notifications. Their EMAIL needs `emailPromotions` and their PUSH
+ * needs `promotions` on the recipient's account preferences. Everything else
+ * (orders, payments, security, support) is transactional: email always goes.
+ */
+const isPromotional = type => CLIENT_TYPE_BY_INTERNAL[type] === 'promo';
+
+/**
  * Shapes a Notification row into the API contract consumed by the client:
  * `{ id, title, body, type, isRead, createdAt }`. `body` maps to the stored
  * `message` and `isRead` derives from `readAt`.
@@ -150,17 +157,24 @@ const notify = async (userId, {
   if (!userId) return null;
 
   const channelSet = new Set(channels);
-  const wantsEmail = channelSet.has(NOTIFICATION_CHANNEL.EMAIL) && !IN_APP_ONLY.has(type);
+  const wantsInApp = channelSet.has(NOTIFICATION_CHANNEL.IN_APP);
+  const wantsPush = wantsInApp && Boolean(PUSH_POLICY[type]);
+  let wantsEmail = channelSet.has(NOTIFICATION_CHANNEL.EMAIL) && !IN_APP_ONLY.has(type);
 
-  // Load recipient for email dispatch.
+  // Recipient (email address + account-level preferences).
   let recipient = null;
-  if (wantsEmail) {
-    recipient = await User.findByPk(userId, { attributes: ['id', 'email', 'fullName'] });
+  if (wantsEmail || wantsPush) {
+    recipient = await User.findByPk(userId, { attributes: ['id', 'email', 'fullName', 'notificationPreferences'] });
+    if (!recipient) return null;
   }
+  const prefs = recipient ? recipient.getNotificationPreferences() : null;
 
-  if (channelSet.has(NOTIFICATION_CHANNEL.IN_APP)) {
+  if (wantsEmail && isPromotional(type) && !prefs.emailPromotions) wantsEmail = false;
+
+  let row = null;
+  if (wantsInApp) {
     try {
-      const row = await Notification.create({
+      row = await Notification.create({
         userId,
         type,
         channel: NOTIFICATION_CHANNEL.IN_APP,
@@ -170,11 +184,12 @@ const notify = async (userId, {
         resourceId: resourceId || null,
         data: data || null
       });
-      // Best-effort Expo push (fire-and-forget, never blocks the request).
-      sendPush({ userId, title, body: message, type, resourceId });
-      return row;
     } catch (err) {
       logger.error('Failed to persist notification', { userId, type, message: err.message });
+    }
+    // Best-effort Expo push (fire-and-forget, never blocks the request).
+    if (wantsPush) {
+      sendPush({ userId, prefs, title, body: message, type, resourceType, resourceId, data });
     }
   }
 
@@ -195,7 +210,7 @@ const notify = async (userId, {
     });
   }
 
-  return null;
+  return row;
 };
 
 // --------------------------------------------------------------------------
@@ -225,29 +240,49 @@ const PUSH_POLICY = {
 };
 
 /**
- * Sends an Expo push to every registered device for a user who consents.
- * Fire-and-forget: never awaited by callers, failures only logged. On a
- * DeviceNotRegistered response the stale token is deleted.
+ * Deep-link payload for the app:
+ *   promo → { type: "promo", couponId, couponCode }
+ *   order → { type: "order", orderId }
+ *   other → { type: "system" }
+ * `notificationType` carries the internal type for older app builds.
  */
-const sendPush = async ({ userId, title, body, type, resourceId }) => {
+const pushDataFor = ({ type, resourceType, resourceId, data = {} }) => {
+  const clientType = CLIENT_TYPE_BY_INTERNAL[type] || 'system';
+  const payload = { type: clientType, notificationType: type };
+  if (clientType === 'promo') {
+    payload.couponId = data.couponId || null;
+    payload.couponCode = data.couponCode || null;
+    if (data.productId) payload.productId = data.productId;
+  } else if (clientType === 'order') {
+    payload.orderId = resourceType === RESOURCE_TYPE.ORDER ? resourceId : (data.orderId || null);
+  }
+  return payload;
+};
+
+/**
+ * Sends an Expo push to every registered device of a user whose ACCOUNT
+ * preferences allow it (the per-user setting wins over the legacy per-device
+ * `preferences`). Fire-and-forget: never awaited by callers, failures only
+ * logged. On a DeviceNotRegistered response the stale token is deleted.
+ */
+const sendPush = async ({ userId, prefs, title, body, type, resourceType, resourceId, data }) => {
   if (!userId) return;
   try {
     const policy = PUSH_POLICY[type];
-    if (!policy) return;
+    if (!policy || !prefs || !prefs[policy.permission]) return;
 
     const tokens = await DeviceToken.findAll({ where: { userId } });
     if (!tokens.length) return;
 
-    const messages = tokens
-      .filter(t => t.preferences?.[policy.permission])
-      .map(t => ({
-        to: t.token,
-        title: title || 'eWinery',
-        body: body || title || '',
-        data: { type, orderId: resourceId || null },
-        channelId: policy.channelId,
-        sound: 'default'
-      }));
+    const pushData = pushDataFor({ type, resourceType, resourceId, data });
+    const messages = tokens.map(t => ({
+      to: t.token,
+      title: title || 'eWinery',
+      body: body || title || '',
+      data: pushData,
+      channelId: policy.channelId,
+      sound: 'default'
+    }));
     if (!messages.length) return;
 
     const response = await fetch(EXPO_PUSH_URL, {
@@ -300,6 +335,25 @@ const upsertDeviceToken = async ({ userId, token, platform, preferences = {} }) 
     await record.update({ platform: platformValue, preferences: prefs });
   }
   return { id: record.id, platform: record.platform, preferences: record.preferences };
+};
+
+/** Account-level notification preferences (defaults merged in). */
+const getPreferences = async userId => {
+  const user = await User.findByPk(userId, { attributes: ['id', 'notificationPreferences'] });
+  if (!user) throw AppError.notFound('Account not found.');
+  return user.getNotificationPreferences();
+};
+
+/** Updates any subset of { orderUpdates, promotions, emailPromotions }. */
+const updatePreferences = async (userId, patch = {}) => {
+  const user = await User.findByPk(userId, { attributes: ['id', 'notificationPreferences'] });
+  if (!user) throw AppError.notFound('Account not found.');
+  const next = { ...user.getNotificationPreferences() };
+  for (const key of Object.keys(User.DEFAULT_NOTIFICATION_PREFERENCES)) {
+    if (typeof patch[key] === 'boolean') next[key] = patch[key];
+  }
+  await user.update({ notificationPreferences: next });
+  return next;
 };
 
 /** Removes a device token (called on sign-out). */
@@ -442,6 +496,8 @@ module.exports = {
   getCounts,
   upsertDeviceToken,
   removeDeviceToken,
+  getPreferences,
+  updatePreferences,
   NOTIFICATION_TYPE,
   NOTIFICATION_CHANNEL,
   RESOURCE_TYPE

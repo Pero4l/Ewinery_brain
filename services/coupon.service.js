@@ -22,7 +22,7 @@ const {
 const AppError = require('../utils/AppError');
 const { escapeLike } = require('../utils/sanitize');
 const { ROLES } = require('../config/constants');
-const { notify, fanOutToAllUsers, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
+const { notify, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 
 // --------------------------------------------------------------------------
 // Admin CRUD
@@ -47,16 +47,8 @@ const createCoupon = async ({ code, name, description, amount, startsAt, expires
       createdBy
     });
 
-    // Broadcast the new coupon to all active customers (in-app + email + push
-    // if they opted into promotional pushes). Never breaks the request.
-    await fanOutToAllUsers({
-      type: NOTIFICATION_TYPE.COUPON_CREATED,
-      title: 'New coupon for you',
-      message: `A new coupon ${coupon.code} is available — save ${coupon.amount} on your next order. Valid until ${end.toISOString()}.`,
-      channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-      resourceType: RESOURCE_TYPE.USER,
-      data: { couponCode: coupon.code, amount: coupon.amount, expiresAt: end.toISOString() }
-    });
+    // No broadcast here: a coupon is only redeemable by users it is assigned
+    // to, so customers are notified on assignment (assignCouponToUsers).
 
     return coupon;
   } catch (err) {
@@ -164,7 +156,7 @@ const getCouponAdmin = async couponId => {
 // --------------------------------------------------------------------------
 
 const assignCouponToUsers = async ({ couponId, userIds, assignedBy }) => {
-  const coupon = await Coupon.findByPk(couponId, { attributes: ['id', 'code', 'name', 'amount', 'expiresAt'] });
+  const coupon = await Coupon.findByPk(couponId, { attributes: ['id', 'code', 'name', 'amount', 'startsAt', 'expiresAt', 'isActive'] });
   if (!coupon) throw AppError.notFound('Coupon not found.');
 
   const uniqueIds = [...new Set(userIds)];
@@ -199,7 +191,7 @@ const assignCouponToUsers = async ({ couponId, userIds, assignedBy }) => {
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         resourceType: RESOURCE_TYPE.USER,
         resourceId: user.id,
-        data: { couponCode: coupon.code, amount: coupon.amount, expiresAt: new Date(coupon.expiresAt).toISOString() }
+        data: { couponId: coupon.id, couponCode: coupon.code, amount: coupon.amount, expiresAt: new Date(coupon.expiresAt).toISOString() }
       }));
     }
     await Promise.allSettled(notifications);

@@ -91,8 +91,25 @@ const adminOrderStatusQuery = Joi.object({
   to: Joi.date().iso().optional()
 });
 
+/**
+ * Email broadcast: the admin may only write a subject and plain-text content.
+ * Any other field is stripped; HTML is escaped when the email is rendered.
+ */
+const emailBroadcastQuery = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100),
+  status: Joi.string().valid('PENDING', 'SENT', 'RETRY', 'FAILED')
+});
+
+const emailBroadcast = Joi.object({
+  subject: Joi.string().trim().min(3).max(150).required(),
+  content: Joi.string().trim().min(10).max(10000).required()
+});
+
 module.exports = {
   adminRegister,
+  emailBroadcast,
+  emailBroadcastQuery,
   adminOrderStatusUpdate,
   adminUserQuery,
   adminOrderQuery,

@@ -7,11 +7,13 @@ const productController = require('../controllers/product.controller');
 const { protect, requireAdmin } = require('../middleware/auth.middleware');
 const { validate } = require('../middleware/validation.middleware');
 const { uploadSingleImage, uploadProductImages } = require('../middleware/upload.middleware');
-const { writeLimiter, authLimiter } = require('../middleware/rateLimiters');
+const { writeLimiter, authLimiter, broadcastLimiter } = require('../middleware/rateLimiters');
 const productValidators = require('../validators/product.validator');
 const adminValidators = require('../validators/admin.validator');
 const couponValidators = require('../validators/coupon.validator');
 const couponController = require('../controllers/coupon.controller');
+const deliveryController = require('../controllers/delivery.controller');
+const deliveryValidators = require('../validators/delivery.validator');
 
 // Key-gated admin registration. Public on purpose — ADMIN_SIGNUP_KEY is the gate.
 router.post('/register', authLimiter(), validate(adminValidators.adminRegister), adminController.registerAdmin);
@@ -73,5 +75,17 @@ router.delete('/coupons/:id', writeLimiter(), validate(couponValidators.couponId
 router.post('/coupons/:id/assign', writeLimiter(), validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.assignCouponUsers), couponController.adminAssignCoupon);
 router.post('/coupons/:id/revoke', writeLimiter(), validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.revokeCouponUsers), couponController.adminRevokeCoupon);
 router.get('/coupons/:id/assignments', validate(couponValidators.couponIdParams, 'params'), validate(couponValidators.couponAssignmentQuery, 'query'), couponController.adminListAssignments);
+
+// Email broadcast to all customers (subject + plain-text content only)
+router.post('/emails/broadcasts', broadcastLimiter(), validate(adminValidators.emailBroadcast, 'body', { multilineFields: ['content'] }), adminController.sendEmailBroadcast);
+router.get('/emails/broadcasts', validate(adminValidators.emailBroadcastQuery, 'query'), adminController.listEmailBroadcasts);
+router.get('/emails/broadcasts/:id', validate(adminValidators.adminIdParams, 'params'), validate(adminValidators.emailBroadcastQuery, 'query'), adminController.getEmailBroadcast);
+
+// Delivery pricing
+router.get('/settings/delivery', deliveryController.adminGetSettings);
+router.patch('/settings/delivery', writeLimiter(), validate(deliveryValidators.updateSettings), deliveryController.adminUpdateSettings);
+router.post('/delivery-zones', writeLimiter(), validate(deliveryValidators.createZone), deliveryController.adminCreateZone);
+router.patch('/delivery-zones/:id', writeLimiter(), validate(deliveryValidators.zoneIdParams, 'params'), validate(deliveryValidators.updateZone), deliveryController.adminUpdateZone);
+router.delete('/delivery-zones/:id', writeLimiter(), validate(deliveryValidators.zoneIdParams, 'params'), deliveryController.adminDeleteZone);
 
 module.exports = router;

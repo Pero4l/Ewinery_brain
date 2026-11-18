@@ -42,12 +42,20 @@ const updateAddress = createAddress.keys({
 
 const setDefaultAddress = Joi.object({});
 
+/** Account-level notification switches (any subset). */
+const notificationPreferences = Joi.object({
+  orderUpdates: Joi.boolean().strict(),
+  promotions: Joi.boolean().strict(),
+  emailPromotions: Joi.boolean().strict()
+}).min(1);
+
 /** Re-acceptance of a (newer) Terms version by a signed-in user. */
 const acceptTerms = Joi.object(consent());
 
 module.exports = {
   updateProfile,
   acceptTerms,
+  notificationPreferences,
   changePassword,
   addressIdParams,
   createAddress,

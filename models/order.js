@@ -89,6 +89,11 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 0,
       get: decimalGetter('discount')
     },
+    /** Delivery zone used to price this order (null = default fee). Snapshot. */
+    deliveryZoneName: {
+      type: DataTypes.STRING(100),
+      allowNull: true
+    },
     /** Final payable amount = subtotal + deliveryFee - discount. */
     totalAmount: {
       type: DataTypes.DECIMAL(12, 2),
