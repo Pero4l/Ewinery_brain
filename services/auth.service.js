@@ -89,6 +89,25 @@ const startSession = async (user, { ipAddress, userAgent } = {}) => {
 };
 
 /** Email-verification code lifetime in ms (config is clamped to 10–15 min). */
+/**
+ * Emails the user every time a session is started for them (password login
+ * and verify-email, which also signs in). Fire-and-forget: a failed email
+ * never blocks the sign-in.
+ */
+const sendLoginAlert = (user, { ipAddress, userAgent } = {}) => notify(user.id, {
+  type: NOTIFICATION_TYPE.LOGIN_ALERT,
+  title: 'New sign-in to your account',
+  message: 'We noticed a new sign-in to your eWinery account.',
+  channels: [NOTIFICATION_CHANNEL.EMAIL],
+  resourceType: RESOURCE_TYPE.USER,
+  resourceId: user.id,
+  data: {
+    ipAddress: ipAddress || null,
+    userAgent: userAgent || null,
+    signedInAt: new Date().toISOString()
+  }
+}).catch(() => null);
+
 const verificationTtlMs = () => config.security.emailVerificationTtlMinutes * 60 * 1000;
 
 /** Sends a verification code email. */
@@ -197,17 +216,7 @@ const login = async ({ email, phone, password, ipAddress, userAgent }) => {
   if (!user.isEmailVerified()) throw emailNotVerified();
 
   const session = await startSession(user, { ipAddress, userAgent });
-
-  await notify(user.id, {
-    type: NOTIFICATION_TYPE.LOGIN_ALERT,
-    title: 'New sign-in to your account',
-    message: 'We noticed a new sign-in to your eWinery account.',
-    channels: [NOTIFICATION_CHANNEL.EMAIL],
-    resourceType: RESOURCE_TYPE.USER,
-    resourceId: user.id,
-    data: { ipAddress: ipAddress || null, userAgent: userAgent || null }
-  });
-
+  await sendLoginAlert(user, { ipAddress, userAgent });
   return session;
 };
 
@@ -403,6 +412,10 @@ const verifyEmail = async ({ email, token, ipAddress, userAgent }) => {
       resourceType: RESOURCE_TYPE.USER,
       resourceId: user.id
     });
+  } else {
+    // First verification already gets the "Email verified" email; only
+    // later sign-ins through this endpoint get the sign-in alert.
+    await sendLoginAlert(user, { ipAddress, userAgent });
   }
 
   return session;

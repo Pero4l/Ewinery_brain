@@ -176,6 +176,7 @@ const render = (type, params = {}) => {
         html: layout('New sign-in', `
           ${heading('New sign-in detected')}
           ${paragraph(`Hi ${name}, we detected a new sign-in to your eWinery account.`)}
+          ${params.signedInAt ? paragraph(`Time: ${new Date(params.signedInAt).toLocaleString('en-NG', { timeZone: 'Africa/Lagos', dateStyle: 'medium', timeStyle: 'short' })} (WAT)`) : ''}
           ${params.ipAddress ? paragraph(`IP address: ${params.ipAddress}`) : ''}
           ${params.userAgent ? paragraph(`Device: ${params.userAgent}`) : ''}
           ${paragraph('If this was you, no further action is needed. If you did not recognise this sign-in, please change your password and contact support immediately.')}
