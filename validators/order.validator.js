@@ -1,7 +1,7 @@
 'use strict';
 
 const Joi = require('joi');
-const { id, email } = require('./common');
+const { id, email, consent } = require('./common');
 const { couponCode } = require('./coupon.validator');
 
 const createOrder = Joi.object({
@@ -29,7 +29,8 @@ const createGuestOrder = Joi.object({
   email: email(),
   phone: Joi.string().trim().min(6).max(30).required(),
   address: guestAddress.required(),
-  customerNote: Joi.string().trim().max(2000).optional().allow(null, '')
+  customerNote: Joi.string().trim().max(2000).optional().allow(null, ''),
+  ...consent()
 });
 
 const orderIdParams = Joi.object({

@@ -138,6 +138,13 @@ module.exports = (sequelize, DataTypes) => {
     completedAt: { type: DataTypes.DATE, allowNull: true },
     cancelledAt: { type: DataTypes.DATE, allowNull: true },
 
+    // Legal consent audit trail for guest checkout (server timestamps only).
+    termsAcceptedAt: { type: DataTypes.DATE, allowNull: true },
+    termsVersion: { type: DataTypes.STRING(32), allowNull: true },
+    ageConfirmedAt: { type: DataTypes.DATE, allowNull: true },
+    consentIpAddress: { type: DataTypes.STRING(64), allowNull: true },
+    consentUserAgent: { type: DataTypes.STRING(255), allowNull: true },
+
     /** True once stock has been decremented, so it is only ever done once. */
     stockCommitted: {
       type: DataTypes.BOOLEAN,
@@ -168,6 +175,14 @@ module.exports = (sequelize, DataTypes) => {
     [ORDER_STATUS.DELIVERED]: 'deliveredAt',
     [ORDER_STATUS.COMPLETED]: 'completedAt',
     [ORDER_STATUS.CANCELLED]: 'cancelledAt'
+  };
+
+  /** Audit-only fields that must never be serialized into API responses. */
+  const PRIVATE_FIELDS = ['consentIpAddress', 'consentUserAgent'];
+  Order.prototype.toJSON = function toJSON() {
+    const values = { ...this.get({ plain: true }) };
+    PRIVATE_FIELDS.forEach(field => { delete values[field]; });
+    return values;
   };
 
   Order.prototype.canTransitionTo = function canTransitionTo(nextStatus) {

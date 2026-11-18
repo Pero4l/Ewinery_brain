@@ -54,12 +54,16 @@ const logoutAll = asyncHandler(async (req, res) => {
 });
 
 const verifyEmail = asyncHandler(async (req, res) => {
-  const user = await authService.verifyEmail({ token: req.body.token });
-  return ok(res, 'Email verified successfully.', { user });
+  const result = await authService.verifyEmail({
+    email: req.body.email,
+    token: req.body.token,
+    ...clientMeta(req)
+  });
+  return ok(res, 'Email verified successfully.', result);
 });
 
 const resendVerification = asyncHandler(async (req, res) => {
-  const result = await authService.resendVerification({ email: req.body.email });
+  const result = await authService.resendVerification({ email: req.body.email, ...clientMeta(req) });
   return ok(res, result.message);
 });
 

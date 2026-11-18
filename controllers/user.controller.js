@@ -25,6 +25,16 @@ const changePassword = asyncHandler(async (req, res) => {
   return ok(res, result.message);
 });
 
+const acceptTerms = asyncHandler(async (req, res) => {
+  const user = await userService.acceptTerms({
+    userId: req.user.id,
+    termsVersion: req.body.termsVersion,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent')
+  });
+  return ok(res, 'Terms accepted.', { user });
+});
+
 // --------------------------------------------------------------------------
 // Addresses
 // --------------------------------------------------------------------------
@@ -61,6 +71,7 @@ const setDefaultAddress = asyncHandler(async (req, res) => {
 module.exports = {
   getProfile,
   updateProfile,
+  acceptTerms,
   changePassword,
   listAddresses,
   createAddress,

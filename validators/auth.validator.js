@@ -1,13 +1,14 @@
 'use strict';
 
 const Joi = require('joi');
-const { email, password } = require('./common');
+const { email, password, consent, otpCode } = require('./common');
 
 const register = Joi.object({
   fullName: Joi.string().trim().min(2).max(120).required(),
   email: email(),
   phone: Joi.string().trim().min(7).max(30).required(),
-  password: password()
+  password: password(),
+  ...consent()
 });
 
 const login = Joi.object({
@@ -33,7 +34,8 @@ const resendVerification = Joi.object({
 });
 
 const verifyEmail = Joi.object({
-  token: Joi.string().required()
+  email: email(),
+  token: otpCode()
 });
 
 const forgotPassword = Joi.object({

@@ -6,9 +6,10 @@ const authController = require('../controllers/auth.controller');
 const { validate } = require('../middleware/validation.middleware');
 const { protect } = require('../middleware/auth.middleware');
 const { authLimiter, passwordResetLimiter } = require('../middleware/rateLimiters');
+const { requireLegalConsent } = require('../middleware/consent.middleware');
 const validators = require('../validators/auth.validator');
 
-router.post('/register', authLimiter(), validate(validators.register), authController.register);
+router.post('/register', authLimiter(), requireLegalConsent, validate(validators.register), authController.register);
 router.post('/login', authLimiter(), validate(validators.login), authController.login);
 router.post('/refresh', authLimiter(), validate(validators.refreshToken), authController.refreshToken);
 router.post('/logout', protect, validate(validators.refreshToken), authController.logout);

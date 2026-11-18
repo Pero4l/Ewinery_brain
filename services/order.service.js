@@ -14,6 +14,7 @@ const config = require('../config');
 const AppError = require('../utils/AppError');
 const { sum: moneySum } = require('../utils/money');
 const { orderNumber, paymentReference } = require('../utils/tokens');
+const { buildConsentRecord } = require('../utils/consent');
 const { getOrCreateCart } = require('./cart.service');
 const couponService = require('./coupon.service');
 const { sendAsync } = require('./email.service');
@@ -327,7 +328,9 @@ const createOrder = async ({ userId, addressId, customerNote, couponCode }) => {
  * No user or cart is required — contact details are snapshotted onto the order
  * (guestEmail + shippingAddress) so the full customer information survives.
  */
-const createGuestOrder = async ({ items = [], email, phone, address = {}, customerNote }) => {
+const createGuestOrder = async ({ items = [], email, phone, address = {}, customerNote, termsVersion, ipAddress, userAgent }) => {
+  // Consent is validated at the route (requireLegalConsent); timestamps are server-side.
+  const consentRecord = buildConsentRecord({ termsVersion, ipAddress, userAgent });
   const guestEmail = String(email || '').trim().toLowerCase();
 
   const result = await sequelize.transaction(async transaction => {
@@ -364,7 +367,8 @@ const createGuestOrder = async ({ items = [], email, phone, address = {}, custom
       itemCount,
       customerNote: customerNote || null,
       couponId: null,
-      couponCode: null
+      couponCode: null,
+      ...consentRecord
     }, { transaction });
 
     for (const line of lines) {

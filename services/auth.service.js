@@ -9,11 +9,13 @@
  * the auth_tokens table; access tokens are short-lived JWTs.
  */
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 const config = require('../config');
 const { ROLES } = require('../config/constants');
 const AppError = require('../utils/AppError');
-const { randomToken, numericOtp } = require('../utils/tokens');
-const { User, AuthToken } = require('../models');
+const { randomToken, numericOtp, safeEqual } = require('../utils/tokens');
+const { buildConsentRecord } = require('../utils/consent');
+const { sequelize, User, AuthToken } = require('../models');
 const { notify, fanOutToAdmins, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, RESOURCE_TYPE } = require('./notification.service');
 
 const { PASSWORD_RESET, EMAIL_VERIFICATION, REFRESH } = AuthToken.TOKEN_TYPE;
@@ -72,19 +74,50 @@ const issueTokens = async (user, { ipAddress, userAgent } = {}) => {
   return { accessToken, refreshToken };
 };
 
+/** Thrown when an unverified account tries to obtain a session. */
+const emailNotVerified = () => new AppError('Please verify your email to continue.', 403, { code: 'EMAIL_NOT_VERIFIED' });
+
+/**
+ * Issues a session for an authenticated user and stamps lastLoginAt.
+ * Shared by login and email verification so both return the same payload
+ * with the same token lifetimes.
+ */
+const startSession = async (user, { ipAddress, userAgent } = {}) => {
+  const tokens = await issueTokens(user, { ipAddress, userAgent });
+  await user.update({ lastLoginAt: new Date() });
+  return { user: user.toPublicJSON(), ...tokens };
+};
+
+/** Email-verification code lifetime in ms (config is clamped to 10–15 min). */
+const verificationTtlMs = () => config.security.emailVerificationTtlMinutes * 60 * 1000;
+
+/** Sends a verification code email. */
+const sendVerificationCode = (user, code) => notify(user.id, {
+  type: NOTIFICATION_TYPE.EMAIL_VERIFICATION,
+  title: 'Verify your email',
+  message: `Use code ${code} to verify your email address. It expires in ${config.security.emailVerificationTtlMinutes} minutes.`,
+  channels: [NOTIFICATION_CHANNEL.EMAIL],
+  resourceType: RESOURCE_TYPE.USER,
+  resourceId: user.id,
+  data: { code }
+});
+
 /**
  * Registers a new account.
  *  - Role defaults to USER; only the key-gated admin route may request ADMIN.
  *  - Sends welcome + email-verification emails and notifies all admins.
  */
-const register = async ({ fullName, email, phone, password, ipAddress, userAgent, role } = {}) => {
+const register = async ({ fullName, email, phone, password, termsVersion, ipAddress, userAgent, role } = {}) => {
   const existing = await User.findOne({ where: { email } });
   if (existing) throw AppError.conflict('An account with this email already exists.');
 
   const finalRole = role && ROLES[role] === role ? role : ROLES.USER;
   const hadAdmins = (await User.count({ where: { role: ROLES.ADMIN } })) > 0;
 
-  const user = User.build({ fullName, email, phone, role: finalRole });
+  // Consent (acceptedTerms/ageConfirmed === true) is enforced at the route by
+  // requireLegalConsent; timestamps here are always server-side.
+  const consent = termsVersion ? buildConsentRecord({ termsVersion, ipAddress, userAgent }) : {};
+  const user = User.build({ fullName, email, phone, role: finalRole, ...consent });
   await user.setPassword(password);
 
   try {
@@ -96,11 +129,11 @@ const register = async ({ fullName, email, phone, password, ipAddress, userAgent
     throw err;
   }
 
-  // Email verification OTP (15 min).
+  // Email verification OTP (10–15 min, single use).
   const { rawToken: verifyCode } = await createAuthToken({
     userId: user.id,
     type: EMAIL_VERIFICATION,
-    ttlMs: config.security.emailVerificationTtlMinutes * 60 * 1000,
+    ttlMs: verificationTtlMs(),
     ipAddress,
     userAgent
   });
@@ -117,15 +150,7 @@ const register = async ({ fullName, email, phone, password, ipAddress, userAgent
     resourceId: user.id
   });
 
-  await notify(user.id, {
-    type: NOTIFICATION_TYPE.EMAIL_VERIFICATION,
-    title: 'Verify your email',
-    message: `Use code ${verifyCode} to verify your email address.`,
-    channels: [NOTIFICATION_CHANNEL.EMAIL],
-    resourceType: RESOURCE_TYPE.USER,
-    resourceId: user.id,
-    data: { code: verifyCode }
-  });
+  await sendVerificationCode(user, verifyCode);
 
   // Notify all existing admins (the very first admin has no peers yet).
   if (hadAdmins) {
@@ -167,14 +192,11 @@ const login = async ({ email, phone, password, ipAddress, userAgent }) => {
   if (!user.isActive) {
     throw AppError.unauthorized('This account has been deactivated. Contact support.');
   }
+  // Checked only after the password matched, so it never reveals whether an
+  // email is registered. No tokens are issued.
+  if (!user.isEmailVerified()) throw emailNotVerified();
 
-  const tokens = await issueTokens(user, { ipAddress, userAgent });
-  if (!user.lastLoginAt || Date.now() - new Date(user.lastLoginAt).getTime() > 60 * 60 * 1000) {
-    user.lastLoginAt = new Date();
-    await user.save({ fields: ['lastLoginAt'] });
-  } else {
-    await user.update({ lastLoginAt: new Date() });
-  }
+  const session = await startSession(user, { ipAddress, userAgent });
 
   await notify(user.id, {
     type: NOTIFICATION_TYPE.LOGIN_ALERT,
@@ -186,7 +208,7 @@ const login = async ({ email, phone, password, ipAddress, userAgent }) => {
     data: { ipAddress: ipAddress || null, userAgent: userAgent || null }
   });
 
-  return { ...tokens, user: user.toPublicJSON() };
+  return session;
 };
 
 /** Consumes a refresh token, ending that session. */
@@ -220,6 +242,7 @@ const refreshTokens = async ({ refreshToken, ipAddress, userAgent }) => {
   if (!user || !user.isActive) {
     throw AppError.unauthorized('Account not found or has been deactivated.');
   }
+  if (!user.isEmailVerified()) throw emailNotVerified();
 
   await record.update({ consumedAt: new Date() });
 
@@ -309,41 +332,125 @@ const resetPassword = async ({ email, otp, newPassword }) => {
   return { success: true };
 };
 
-/** Confirms an email address using the verification OTP. */
-const verifyEmail = async ({ token }) => {
+const invalidCode = () => AppError.badRequest('Invalid or expired verification code.', { code: 'INVALID_VERIFICATION_CODE' });
+const codeExpired = () => AppError.badRequest('This verification code has expired. Please request a new code.', { code: 'VERIFICATION_CODE_EXPIRED' });
+const tooManyAttempts = () => AppError.badRequest('Too many incorrect attempts. Please request a new code.', { code: 'TOO_MANY_ATTEMPTS' });
+
+/**
+ * Confirms an email address with the 6-digit code and starts a session
+ * (same payload and token lifetimes as login).
+ *
+ *  - Only the newest outstanding code for that email is valid (resend voids older ones).
+ *  - Each check first reserves an attempt atomically, so at most
+ *    `emailVerificationMaxAttempts` guesses are ever compared per code — even
+ *    under parallel requests. After that a new code is required.
+ *  - Codes are stored as SHA-256 hashes and compared in constant time.
+ *  - Single use: consumption is a conditional update, so two concurrent
+ *    correct submissions cannot both succeed.
+ */
+const verifyEmail = async ({ email, token, ipAddress, userAgent }) => {
+  const maxAttempts = config.security.emailVerificationMaxAttempts;
+
+  const user = await User.findOne({ where: { email } });
+  if (!user) throw invalidCode();
+
   const record = await AuthToken.findOne({
-    where: { tokenHash: AuthToken.hashToken(token), type: EMAIL_VERIFICATION }
+    where: { userId: user.id, type: EMAIL_VERIFICATION, consumedAt: null },
+    order: [['createdAt', 'DESC']]
   });
-  if (!record || !record.isUsable()) {
-    throw AppError.badRequest('Invalid or expired verification code.');
+  if (!record) throw invalidCode();
+  if (record.expiresAt <= new Date()) throw codeExpired();
+
+  const [reserved] = await AuthToken.update(
+    { attempts: sequelize.literal('"attempts" + 1') },
+    { where: { id: record.id, consumedAt: null, attempts: { [Op.lt]: maxAttempts } } }
+  );
+  if (!reserved) throw tooManyAttempts();
+
+  if (!safeEqual(record.tokenHash, AuthToken.hashToken(token))) {
+    if (record.attempts + 1 >= maxAttempts) throw tooManyAttempts();
+    throw invalidCode();
   }
 
-  const user = await User.findByPk(record.userId);
-  if (!user) throw AppError.notFound('Account not found.');
-
-  await record.update({ consumedAt: new Date() });
-  if (!user.emailVerifiedAt) {
-    await user.update({ emailVerifiedAt: new Date() });
+  if (!user.isActive) {
+    throw AppError.unauthorized('This account has been deactivated. Contact support.');
   }
 
-  await notify(user.id, {
-    type: NOTIFICATION_TYPE.EMAIL_VERIFIED,
-    title: 'Email verified',
-    message: 'Your email address has been verified successfully.',
-    channels: [NOTIFICATION_CHANNEL.EMAIL],
-    resourceType: RESOURCE_TYPE.USER,
-    resourceId: user.id
-  });
+  const now = new Date();
+  const [consumed] = await AuthToken.update(
+    { consumedAt: now },
+    { where: { id: record.id, consumedAt: null } }
+  );
+  if (!consumed) throw invalidCode();
 
-  return user.toPublicJSON();
+  // Void any other outstanding verification codes for this account.
+  await AuthToken.update(
+    { consumedAt: now },
+    { where: { userId: user.id, type: EMAIL_VERIFICATION, consumedAt: null } }
+  );
+
+  const firstVerification = !user.emailVerifiedAt;
+  if (firstVerification) await user.update({ emailVerifiedAt: now });
+
+  const session = await startSession(user, { ipAddress, userAgent });
+
+  if (firstVerification) {
+    await notify(user.id, {
+      type: NOTIFICATION_TYPE.EMAIL_VERIFIED,
+      title: 'Email verified',
+      message: 'Your email address has been verified successfully.',
+      channels: [NOTIFICATION_CHANNEL.EMAIL],
+      resourceType: RESOURCE_TYPE.USER,
+      resourceId: user.id
+    });
+  }
+
+  return session;
 };
 
-/** Resends the email verification OTP (anti-enumeration behaviour). */
-const resendVerification = async ({ email }) => {
+/**
+ * Resends the email verification code.
+ *
+ * Anti-enumeration: unknown and already-verified emails get the same generic
+ * success message (and no email). Per-email limits for real accounts:
+ * one code per `verificationResendCooldownSeconds`, and at most
+ * `verificationResendMaxPerHour` codes per rolling hour (the code sent at
+ * registration counts). Exceeding either returns 429 with retryAfterSeconds.
+ */
+const resendVerification = async ({ email, ipAddress, userAgent }) => {
   const genericMessage = 'If an account exists for this email, a verification code has been sent.';
   const user = await User.findOne({ where: { email } });
-  if (!user) return { message: genericMessage };
+  if (!user || user.isEmailVerified()) return { message: genericMessage };
 
+  const nowMs = Date.now();
+  const hourMs = 60 * 60 * 1000;
+  const cooldownMs = config.security.verificationResendCooldownSeconds * 1000;
+  const maxPerHour = config.security.verificationResendMaxPerHour;
+
+  const recent = await AuthToken.findAll({
+    where: { userId: user.id, type: EMAIL_VERIFICATION, createdAt: { [Op.gte]: new Date(nowMs - hourMs) } },
+    attributes: ['createdAt'],
+    order: [['createdAt', 'DESC']]
+  });
+
+  const latest = recent[0];
+  if (latest && nowMs - latest.createdAt.getTime() < cooldownMs) {
+    const retryAfterSeconds = Math.ceil((latest.createdAt.getTime() + cooldownMs - nowMs) / 1000);
+    throw AppError.tooManyRequests(`Please wait ${retryAfterSeconds} seconds before requesting a new code.`, {
+      code: 'RESEND_COOLDOWN',
+      details: { retryAfterSeconds }
+    });
+  }
+  if (recent.length >= maxPerHour) {
+    const oldest = recent[recent.length - 1];
+    const retryAfterSeconds = Math.max(1, Math.ceil((oldest.createdAt.getTime() + hourMs - nowMs) / 1000));
+    throw AppError.tooManyRequests('Too many verification codes requested. Please try again later.', {
+      code: 'RESEND_LIMIT_REACHED',
+      details: { retryAfterSeconds }
+    });
+  }
+
+  // A new code voids every previous one.
   await AuthToken.update(
     { consumedAt: new Date() },
     { where: { userId: user.id, type: EMAIL_VERIFICATION, consumedAt: null } }
@@ -352,18 +459,12 @@ const resendVerification = async ({ email }) => {
   const { rawToken: code } = await createAuthToken({
     userId: user.id,
     type: EMAIL_VERIFICATION,
-    ttlMs: config.security.emailVerificationTtlMinutes * 60 * 1000
+    ttlMs: verificationTtlMs(),
+    ipAddress,
+    userAgent
   });
 
-  await notify(user.id, {
-    type: NOTIFICATION_TYPE.EMAIL_VERIFICATION,
-    title: 'Verify your email',
-    message: `Use code ${code} to verify your email address.`,
-    channels: [NOTIFICATION_CHANNEL.EMAIL],
-    resourceType: RESOURCE_TYPE.USER,
-    resourceId: user.id,
-    data: { code }
-  });
+  await sendVerificationCode(user, code);
 
   return { message: genericMessage };
 };

@@ -66,6 +66,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true
     },
+    // Legal consent audit trail (server timestamps only — never client-sent).
+    termsAcceptedAt: { type: DataTypes.DATE, allowNull: true },
+    termsVersion: { type: DataTypes.STRING(32), allowNull: true },
+    ageConfirmedAt: { type: DataTypes.DATE, allowNull: true },
+    consentIpAddress: { type: DataTypes.STRING(64), allowNull: true },
+    consentUserAgent: { type: DataTypes.STRING(255), allowNull: true },
     /** Any access token issued before this moment is rejected (logout-all / password change). */
     tokensValidFrom: {
       type: DataTypes.DATE,
@@ -124,6 +130,9 @@ module.exports = (sequelize, DataTypes) => {
       isActive: this.isActive,
       isEmailVerified: this.isEmailVerified(),
       lastLoginAt: this.lastLoginAt,
+      termsVersion: this.termsVersion || null,
+      termsAcceptedAt: this.termsAcceptedAt || null,
+      ageConfirmedAt: this.ageConfirmedAt || null,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };

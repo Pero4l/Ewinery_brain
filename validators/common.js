@@ -25,4 +25,20 @@ const password = () => Joi.string()
     'any.required': 'Password is required'
   });
 
-module.exports = { id, email, password };
+/**
+ * Legal consent fields. Enforced strictly (400) by
+ * middleware/consent.middleware.js; declared here so `stripUnknown` keeps them.
+ */
+const consent = () => ({
+  acceptedTerms: Joi.boolean().strict().valid(true).required(),
+  termsVersion: Joi.string().trim().min(1).max(32).required(),
+  ageConfirmed: Joi.boolean().strict().valid(true).required()
+});
+
+/** 6-digit numeric verification / reset code. */
+const otpCode = () => Joi.string().trim().pattern(/^\d{6}$/).required().messages({
+  'string.pattern.base': 'Code must be a 6 digit number',
+  'any.required': 'Code is required'
+});
+
+module.exports = { id, email, password, consent, otpCode };

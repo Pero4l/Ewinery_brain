@@ -22,7 +22,10 @@ const createGuestOrder = asyncHandler(async (req, res) => {
     email: req.body.email,
     phone: req.body.phone,
     address: req.body.address,
-    customerNote: req.body.customerNote
+    customerNote: req.body.customerNote,
+    termsVersion: req.body.termsVersion,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent')
   });
   return created(res, 'Order created successfully. Complete payment to confirm your order.', result);
 });

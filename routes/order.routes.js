@@ -6,10 +6,11 @@ const orderController = require('../controllers/order.controller');
 const { protect } = require('../middleware/auth.middleware');
 const { validate } = require('../middleware/validation.middleware');
 const { writeLimiter } = require('../middleware/rateLimiters');
+const { requireLegalConsent } = require('../middleware/consent.middleware');
 const validators = require('../validators/order.validator');
 
 router.post('/', protect, writeLimiter(), validate(validators.createOrder), orderController.createOrder);
-router.post('/guest', writeLimiter(), validate(validators.createGuestOrder), orderController.createGuestOrder);
+router.post('/guest', writeLimiter(), requireLegalConsent, validate(validators.createGuestOrder), orderController.createGuestOrder);
 router.get('/', protect, validate(validators.orderQuery, 'query'), orderController.listMyOrders);
 router.get('/:id', protect, validate(validators.orderIdParams, 'params'), orderController.getOrder);
 router.post('/:id/confirm-receipt', protect, writeLimiter(), validate(validators.confirmReceiptParams, 'params'), orderController.confirmReceipt);

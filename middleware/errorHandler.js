@@ -63,6 +63,10 @@ const errorHandler = (err, req, res, next) => {
     logger.warn('Request error', { method: req.method, url: req.originalUrl, statusCode, message });
   }
 
+  if (statusCode === 429 && details && details.retryAfterSeconds) {
+    res.set('Retry-After', String(details.retryAfterSeconds));
+  }
+
   const body = { success: false, message };
   if (code) body.code = code;
   if (details) body.errors = details;

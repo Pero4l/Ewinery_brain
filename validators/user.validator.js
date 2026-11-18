@@ -1,6 +1,7 @@
 'use strict';
 
 const Joi = require('joi');
+const { consent } = require('./common');
 
 const updateProfile = Joi.object({
   fullName: Joi.string().trim().min(2).max(120).optional(),
@@ -41,8 +42,12 @@ const updateAddress = createAddress.keys({
 
 const setDefaultAddress = Joi.object({});
 
+/** Re-acceptance of a (newer) Terms version by a signed-in user. */
+const acceptTerms = Joi.object(consent());
+
 module.exports = {
   updateProfile,
+  acceptTerms,
   changePassword,
   addressIdParams,
   createAddress,

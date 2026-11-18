@@ -8,6 +8,7 @@
  */
 const { sequelize, User, Address } = require('../models');
 const AppError = require('../utils/AppError');
+const { buildConsentRecord } = require('../utils/consent');
 
 /** Client-safe profile for the authenticated user. */
 const getProfile = async userId => {
@@ -26,6 +27,17 @@ const updateProfile = async ({ userId, fullName, phone }) => {
   if (phone !== undefined) patch.phone = phone;
 
   await user.update(patch);
+  return user.toPublicJSON();
+};
+
+/**
+ * Records acceptance of a (newer) Terms version for an existing user.
+ * Consent booleans are enforced at the route; timestamps are server-side.
+ */
+const acceptTerms = async ({ userId, termsVersion, ipAddress, userAgent }) => {
+  const user = await User.findByPk(userId);
+  if (!user) throw AppError.notFound('Account not found.');
+  await user.update(buildConsentRecord({ termsVersion, ipAddress, userAgent }));
   return user.toPublicJSON();
 };
 
@@ -144,6 +156,7 @@ const getDeliveryAddress = async (userId, addressId) => {
 module.exports = {
   getProfile,
   updateProfile,
+  acceptTerms,
   listAddresses,
   createAddress,
   updateAddress,
