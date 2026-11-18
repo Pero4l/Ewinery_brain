@@ -311,7 +311,9 @@ const dispatchPaymentNotifications = async (orderId, paymentResult) => {
       channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
       resourceType: RESOURCE_TYPE.ORDER,
       resourceId: order.id,
-      data: { orderNumber: order.orderNumber, amount: order.totalAmount }
+      data: { orderNumber: order.orderNumber, amount: order.totalAmount },
+      // Itemised receipt for the email (not stored on the in-app row).
+      emailParams: orderParams
     }),
     fanOutToAdmins({
       type: success ? NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL : NOTIFICATION_TYPE.PAYMENT_FAILED,

@@ -30,7 +30,8 @@ const EMAIL_TEMPLATE_BY_TYPE = {
   [NOTIFICATION_TYPE.PASSWORD_CHANGED]: 'password_changed',
   [NOTIFICATION_TYPE.LOGIN_ALERT]: 'login_alert',
   [NOTIFICATION_TYPE.ORDER_CREATED]: 'order_confirmation',
-  [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: 'payment_success',
+  // Paid orders get the full itemised receipt (same email guests get).
+  [NOTIFICATION_TYPE.PAYMENT_SUCCESSFUL]: 'order_receipt',
   [NOTIFICATION_TYPE.PAYMENT_FAILED]: 'payment_failed',
   [NOTIFICATION_TYPE.ORDER_STATUS_CHANGED]: 'order_status',
   [NOTIFICATION_TYPE.ORDER_OUT_FOR_DELIVERY]: 'order_status',
@@ -87,7 +88,10 @@ const CLIENT_TYPE_BY_INTERNAL = {
 /**
  * Marketing notifications. Their EMAIL needs `emailPromotions` and their PUSH
  * needs `promotions` on the recipient's account preferences. Everything else
- * (orders, payments, security, support) is transactional: email always goes.
+ * is transactional and its email is ALWAYS sent, whatever the user's
+ * preferences: order confirmations/receipts/status updates, payment results,
+ * and security emails (verification codes, password reset/change, sign-in
+ * alerts). Do not gate those on preferences.
  */
 const isPromotional = type => CLIENT_TYPE_BY_INTERNAL[type] === 'promo';
 
